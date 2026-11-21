@@ -1,0 +1,2306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>편의점 GO</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', 'Inter', sans-serif; touch-action: none; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+
+        @keyframes float { 0%, 100% { transform: translate(-50%, 0px); } 50% { transform: translate(-50%, -6px); } }
+        @keyframes bagShake { 0%, 100% { transform: rotate(0deg) scale(1); } 25% { transform: rotate(-12deg) scale(1.04); } 75% { transform: rotate(12deg) scale(1.04); } }
+        @keyframes popIn { 0% { transform: scale(0.88); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+        @keyframes suneungScroll {
+            0% { transform: translateX(0%); }
+            100% { transform: translateX(-50%); }
+        }
+        .suneung-marquee {
+            display: flex;
+            width: max-content;
+            animation: suneungScroll 20s linear infinite;
+        }
+
+        .mon-bubble { position: absolute; left: 50%; top: -44px; transform: translate(-50%, 0); animation: float 1.6s ease-in-out infinite; pointer-events: auto; cursor: pointer; }
+        .bag-shake { animation: bagShake 0.25s ease-in-out 1; }
+        .pop-in { animation: popIn 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        #mapContainer {
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-200 text-slate-800 h-screen w-screen overflow-hidden flex justify-center select-none">
+
+    <!-- 모바일 프레임 컨테이너 -->
+    <div class="relative w-full max-w-[460px] h-full bg-white shadow-2xl overflow-hidden flex flex-col border-x border-slate-200">
+
+        <!-- 상단 응원 전광판 배너 -->
+        <div class="relative z-[1150] bg-amber-300/95 text-slate-900 text-[11px] font-black py-1 border-b border-amber-400 overflow-hidden shrink-0">
+            <div class="suneung-marquee">
+                <span class="px-5">🎓 수능 파이팅!!! 수능 보신 분들 수고하셨습니다. · 지도를 쭉 드래그해 주변 편의점 35m 이내에서 편의몬을 잡아보세요!</span>
+                <span class="px-5">🎓 수능 파이팅!!! 수능 보신 분들 수고하셨습니다. · 지도를 쭉 드래그해 주변 편의점 35m 이내에서 편의몬을 잡아보세요!</span>
+            </div>
+        </div>
+
+        <!-- 2D 지도 캔버스 영역 -->
+        <div id="mapContainer" class="absolute inset-0 z-0 bg-[#f4f6f8] overflow-hidden cursor-grab active:cursor-grabbing">
+            <canvas id="vectorMapCanvas" class="block w-full h-full"></canvas>
+            <div id="mapOverlayLayer" class="absolute inset-0 pointer-events-none"></div>
+        </div>
+
+        <!-- 상단 플로팅 바 -->
+        <div class="absolute top-9 left-3 right-3 z-[1000] flex flex-col gap-2 pointer-events-none">
+            <div class="flex items-center gap-2.5 bg-white/95 backdrop-blur-md p-2.5 rounded-2xl shadow-md pointer-events-auto border border-slate-200/80">
+                <button onclick="openProfileModal()" id="userAvatarBtn" class="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center justify-center text-xl shrink-0 transition active:scale-95" title="내 아이콘 변경">
+                    🧑
+                </button>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5">
+                        <span id="userNameLabel" class="text-[11px] font-extrabold text-slate-700">편의점 헌터</span>
+                        <span id="coordBadge" class="text-[9px] bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-md font-bold">GPS 탐색중</span>
+                        <span id="discountHudBadge" class="hidden text-[9px] bg-violet-600 text-white px-1.5 py-0.5 rounded-md font-extrabold">🏷️ +30% 2:00</span>
+                    </div>
+                    <div id="currentLocationBadge" class="text-xs font-bold text-slate-500 truncate mt-0.5">주변 편의점 &amp; 편의몬 탐색 중...</div>
+                </div>
+                <button id="topRightClockBtn" onclick="cycleTimeOverride()" class="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-slate-900 border border-amber-200 rounded-xl text-[11px] font-black shadow-xs transition active:scale-95 flex items-center gap-1 shrink-0" title="왼쪽 해/달 아이콘 · 오른쪽 현재 시각 (클릭 시 낮/밤 테스트 전환)">
+                    <span id="clockSunMoonIcon" class="text-sm leading-none">☀️</span>
+                    <span id="clockTimeText" class="tabular-nums">00:00</span>
+                </button>
+                <button onclick="locateUserGPS()" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition active:scale-95 flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-location-crosshairs"></i> 현위치
+                </button>
+            </div>
+
+            <!-- 브랜드 필터 & 지도 스타일 전환 -->
+            <div class="flex items-center gap-1.5 overflow-x-auto py-0.5 px-0.5 no-scrollbar pointer-events-auto">
+                <button id="btn-ALL" onclick="filterBrand('ALL')" class="brand-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-slate-900 text-white shadow-sm shrink-0">전체</button>
+                <button id="btn-CU" onclick="filterBrand('CU')" class="brand-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-purple-700 border border-slate-200 shadow-sm hover:bg-purple-50 shrink-0">CU</button>
+                <button id="btn-GS25" onclick="filterBrand('GS25')" class="brand-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-sky-700 border border-slate-200 shadow-sm hover:bg-sky-50 shrink-0">GS25</button>
+                <button id="btn-7-ELEVEN" onclick="filterBrand('7-ELEVEN')" class="brand-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-emerald-700 border border-slate-200 shadow-sm hover:bg-emerald-50 shrink-0">세븐일레븐</button>
+                <button id="btn-EMART24" onclick="filterBrand('EMART24')" class="brand-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-amber-700 border border-slate-200 shadow-sm hover:bg-amber-50 shrink-0">이마트24</button>
+                <button id="btn-mapMode" onclick="cycleMapStyleMode()" class="px-2.5 py-1.5 rounded-xl text-xs font-extrabold transition-all bg-blue-50 text-blue-700 border border-blue-200 shadow-sm hover:bg-blue-100 shrink-0">🗺️ 2D지도</button>
+            </div>
+        </div>
+
+        <!-- 좌측 줌 컨트롤 & 축척 -->
+        <div id="leftControls" class="absolute left-3 bottom-[47vh] z-[900] flex flex-col gap-2 pointer-events-none transition-all duration-300">
+            <div class="bg-white/95 backdrop-blur rounded-2xl shadow-md border border-slate-200 overflow-hidden flex flex-col pointer-events-auto">
+                <button onclick="zoomMap(1)" class="w-9 h-9 flex items-center justify-center text-slate-700 hover:bg-slate-100 border-b border-slate-100 active:bg-slate-200"><i class="fa-solid fa-plus text-xs"></i></button>
+                <button onclick="zoomMap(-1)" class="w-9 h-9 flex items-center justify-center text-slate-700 hover:bg-slate-100 active:bg-slate-200"><i class="fa-solid fa-minus text-xs"></i></button>
+            </div>
+            <div class="bg-white/90 backdrop-blur px-2 py-1 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center">
+                <span id="scaleLabel" class="text-[9px] font-bold text-slate-600">200m</span>
+                <div id="scaleBar" class="h-1 border-x-2 border-b-2 border-slate-700 w-10 mt-0.5"></div>
+            </div>
+        </div>
+
+        <!-- 우측 게임 액션 메뉴 -->
+        <div id="rightControls" class="absolute right-3 bottom-[47vh] z-[900] flex flex-col items-end gap-2 transition-all duration-300">
+            <div class="flex items-center gap-1.5 bg-white/95 backdrop-blur border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-md">
+                <span class="text-xs font-extrabold text-amber-500" id="goldPill">💰 500G</span>
+                <span class="text-slate-300">|</span>
+                <span class="text-xs font-extrabold text-blue-600" id="bagPill">🛍️ 10개</span>
+            </div>
+
+            <button onclick="openRadar()" class="w-11 h-11 bg-white hover:bg-slate-50 rounded-2xl shadow-md border border-slate-200 text-lg flex items-center justify-center active:scale-95 transition relative" title="친구 레이더 &amp; 친구추가">
+                📡<span id="friendBadge" class="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-white hidden"></span>
+            </button>
+            <button onclick="openBagShop()" class="w-11 h-11 bg-white hover:bg-slate-50 rounded-2xl shadow-md border border-slate-200 text-lg flex items-center justify-center active:scale-95 transition" title="비닐봉투 상점">
+                🛍️
+            </button>
+            <button onclick="openDex()" class="w-11 h-11 bg-white hover:bg-slate-50 rounded-2xl shadow-md border border-slate-200 text-lg flex items-center justify-center active:scale-95 transition relative" title="편의몬 도감">
+                📖<span id="dexBadge" class="absolute -top-1.5 -right-1.5 bg-slate-900 text-white text-[10px] font-extrabold rounded-full px-1.5 py-0.5">0</span>
+            </button>
+            <button onclick="openSuneungEventModal()" class="w-11 h-11 bg-amber-300 hover:bg-amber-400 rounded-2xl shadow-md border border-amber-400 text-lg flex items-center justify-center active:scale-95 transition" title="수능 응원 이벤트">
+                🎓
+            </button>
+            <button onclick="openShopModal()" class="w-11 h-11 bg-amber-50 hover:bg-amber-100 rounded-2xl shadow-md border border-amber-200 text-lg flex items-center justify-center active:scale-95 transition" title="1+1 · 뜨거운 물 · 30% 할인 상점">
+                ♨️
+            </button>
+            <button onclick="openOwnerTutorial(0)" class="w-11 h-11 bg-indigo-50 hover:bg-indigo-100 rounded-2xl shadow-md border border-indigo-200 text-lg flex items-center justify-center active:scale-95 transition" title="편의점 사장님 튜토리얼">
+                🧑‍💼
+            </button>
+            <button onclick="centerOnUser()" class="w-11 h-11 bg-blue-600 hover:bg-blue-700 rounded-2xl shadow-md text-white flex items-center justify-center text-base active:scale-95 transition" title="내 위치로 이동">
+                <i class="fa-solid fa-location-arrow"></i>
+            </button>
+        </div>
+
+        <!-- 길찾기 안내 패널 -->
+        <div id="routePanel" class="absolute top-32 left-3 right-3 z-[1100] bg-white/95 backdrop-blur-md text-slate-800 p-3.5 rounded-2xl shadow-xl border border-blue-200 hidden transition-all">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white text-xs shadow-sm">
+                        <i class="fa-solid fa-person-walking"></i>
+                    </div>
+                    <div>
+                        <div class="text-[10px] text-blue-600 font-extrabold uppercase">도보 최단 경로 안내</div>
+                        <div id="routeTargetName" class="text-xs font-extrabold text-slate-900 truncate max-w-[230px]">목적지 편의점</div>
+                    </div>
+                </div>
+                <button onclick="clearRoute()" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark text-xs"></i>
+                </button>
+            </div>
+            <div class="bg-slate-50 border border-slate-100 p-2.5 rounded-xl flex items-center justify-between">
+                <div>
+                    <div id="routeTime" class="text-sm font-black text-blue-600">약 4분</div>
+                    <div id="routeDistance" class="text-[11px] font-semibold text-slate-500">거리 280m</div>
+                </div>
+                <div id="routeSteps" class="text-right text-[11px] font-bold text-slate-700 max-w-[190px]">
+                    큰길을 따라 직진 후 우회전
+                </div>
+            </div>
+        </div>
+
+        <!-- 하단 바텀시트 -->
+        <div id="sidebar" class="absolute bottom-0 left-0 right-0 z-[1000] bg-white rounded-t-[28px] shadow-[0_-8px_25px_rgba(15,23,42,0.08)] border-t border-slate-200/80 flex flex-col transition-all duration-300" style="height: 44vh;">
+            <div onclick="toggleMobileDrawer()" class="w-full pt-2.5 pb-2 flex flex-col items-center justify-center cursor-pointer">
+                <div class="w-10 h-1 bg-slate-300 rounded-full mb-2"></div>
+                <div class="flex items-center justify-between w-full px-5">
+                    <div class="flex items-center gap-2">
+                        <h2 class="font-extrabold text-sm text-slate-900">주변 편의점 &amp; 출몰 편의몬</h2>
+                        <span id="storeCount" class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-xs font-extrabold">0</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="event.stopPropagation(); minimizeDrawer();" class="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-[10px] font-extrabold text-slate-600 transition">
+                            지도넓게
+                        </button>
+                        <span id="drawerToggleBtn" class="text-xs font-bold text-blue-600 flex items-center gap-1">
+                            <i class="fa-solid fa-chevron-up"></i> 크게보기
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-4 pb-2.5 flex items-center gap-2 border-b border-slate-100">
+                <div class="relative flex-1 flex items-center">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 text-xs text-slate-400"></i>
+                    <input type="text" id="searchInput" oninput="handleSearchInput()" onkeydown="if(event.key==='Enter') searchNewLocation()" placeholder="지점명·동네(예: 강남역, 천안, 명동) 검색" class="w-full bg-slate-100 pl-8 pr-14 py-2 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                    <button onclick="searchNewLocation()" class="absolute right-1.5 px-2 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-bold hover:bg-blue-700 transition">이동</button>
+                </div>
+                <select id="radiusSelect" onchange="updateRadius()" class="bg-slate-100 px-2.5 py-2 rounded-xl text-xs font-bold text-slate-700 focus:outline-none">
+                    <option value="100">100m</option>
+                    <option value="200" selected>200m</option>
+                    <option value="500">500m</option>
+                    <option value="1500">1.5km</option>
+                    <option value="5000">5km</option>
+                </select>
+            </div>
+
+            <div id="storeList" class="flex-1 overflow-y-auto p-3.5 space-y-2.5 bg-slate-50/50"></div>
+        </div>
+
+        <!-- 모달 & 토스트 -->
+        <div id="gameModal" class="absolute inset-0 z-[3000] bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center p-4"></div>
+        <div id="toast" class="absolute top-32 left-1/2 -translate-x-1/2 z-[3500] bg-slate-900 text-white px-4 py-2 rounded-full text-xs font-bold shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 flex items-center gap-2 whitespace-nowrap">
+            <span id="toastMsg">메시지</span>
+        </div>
+    </div>
+
+    <script>
+        /* ===== 1. 기본 설정 및 상태 관리 ===== */
+        const BRAND_CONFIG = {
+            'CU': { name: 'CU', short: 'CU', color: '#7c3aed', badge: 'bg-purple-50 text-purple-700 border-purple-200' },
+            'GS25': { name: 'GS25', short: 'GS', color: '#0284c7', badge: 'bg-sky-50 text-sky-700 border-sky-200' },
+            '7-ELEVEN': { name: '세븐일레븐', short: '7E', color: '#059669', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            'EMART24': { name: '이마트24', short: 'E24', color: '#d97706', badge: 'bg-amber-50 text-amber-700 border-amber-200' }
+        };
+
+        const CATCH_RANGE = 35;
+        let STORES_DATA = [];
+        let userLocation = { lat: 36.8151, lng: 127.1139 };
+        let mapCenter = { lat: 36.8151, lng: 127.1139 };
+        let mapZoom = 14.5;
+        let selectedBrand = 'ALL';
+        let currentRadius = 200;
+        let activeDestination = null;
+        // drawerState: 'minimized' | 'normal' | 'expanded'
+        let drawerState = 'normal';
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let cheatModeActive = false;
+        let mapStyleMode = '2d';
+        let timeOverrideSlot = null;
+
+        // 부드러운 관성 이동 및 멀티터치 핀치 줌 상태
+        let mapVelocity = { lat: 0, lng: 0 };
+        let inertiaFrameId = null;
+        let activePointers = new Map();
+        let lastPinchDist = null;
+        let lastMoveTime = 0;
+
+        const DAY_ONLY_MON_IDS = ['mon_76', 'mon_77', 'mon_78', 'mon_79', 'mon_80', 'mon_101', 'mon_102', 'mon_103'];
+        const NIGHT_ONLY_MON_IDS = ['mon_51', 'mon_52', 'mon_53', 'mon_130', 'mon_131', 'mon_135', 'mon_136', 'mon_139'];
+        const HOURLY_LIMITED_MON_IDS = ['mon_126', 'mon_127', 'mon_128', 'mon_129', 'mon_133', 'mon_134', 'mon_144', 'mon_145'];
+
+        function getCurrentTimeInfo() {
+            const now = new Date();
+            const hour = now.getHours();
+            const minute = now.getMinutes();
+            let mode = timeOverrideSlot;
+            if (!mode) {
+                if (hour >= 6 && hour < 18) mode = 'day';
+                else mode = 'night';
+            }
+            const hourlyIndex = now.getHours();
+            const hourlyMon = MONSTERS.find(m => m.id === HOURLY_LIMITED_MON_IDS[hourlyIndex % HOURLY_LIMITED_MON_IDS.length]) || MONSTERS[125];
+            return {
+                hour,
+                minute,
+                clockText: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+                sunMoon: mode === 'day' ? '☀️' : '🌙',
+                mode,
+                hourlyIndex,
+                hourlyMon,
+                label: mode === 'day' ? `☀️ 낮 (${hour}시)` : `🌙 밤 (${hour}시)`
+            };
+        }
+
+        function getMonsterTimeTag(monId) {
+            if (DAY_ONLY_MON_IDS.includes(monId)) return { text: '☀️ 낮전용', cls: 'bg-sky-100 text-sky-800 border-sky-200' };
+            if (NIGHT_ONLY_MON_IDS.includes(monId)) return { text: '🌙 밤전용', cls: 'bg-indigo-900 text-indigo-100 border-indigo-700' };
+            if (HOURLY_LIMITED_MON_IDS.includes(monId)) return { text: '⏰ 시간한정', cls: 'bg-amber-100 text-amber-900 border-amber-300' };
+            return null;
+        }
+
+        function cycleTimeOverride() {
+            const order = [null, 'day', 'night'];
+            const next = order[(order.indexOf(timeOverrideSlot) + 1) % order.length];
+            timeOverrideSlot = next;
+            spawns = {};
+            updateTopUI();
+            redrawMap();
+            const info = getCurrentTimeInfo();
+            showToast(next === null
+                ? `🕒 실제 시각 모드로 복귀 (${info.label})`
+                : `🧪 시간대 테스트 전환: ${info.label} · ⏰ ${info.hourlyMon.name} 출현!`);
+        }
+
+        let userProfile = {
+            name: '',
+            hasSetNickname: false,
+            hasSeenTutorial: false,
+            claimedSuneungCheer: false,
+            emoji: '🧑',
+            gold: 500,
+            bags: { normal: 10, eco: 3, premium: 1 },
+            hasTarpaulin: false,
+            items: { onePlusOne: 1, hotWater: 1, discount30: 1 },
+            equipped: { slot1: null, slot2: null, slot3: 'discount30' },
+            hotWaterStartedAt: null,
+            discount30EndsAt: null
+        };
+
+        let friendsList = [
+            { id: 'f1', name: '야식헌터_민수', emoji: '😎', dist: '120m', mon: '참치마요몽', status: 'friend' },
+            { id: 'f2', name: '편의점마스터', emoji: '🐱', dist: '240m', mon: '바나나단지냥', status: 'friend' }
+        ];
+        let pendingRequests = [
+            { id: 'f3', name: '새벽알바생', emoji: '🧢', dist: '380m', mon: '매콤불닭용', status: 'pending' }
+        ];
+
+        let dex = {};
+        let spawns = {};
+        let enc = null;
+        let currentModalType = null;
+
+        function safeShowToast(msg) {
+            try {
+                showToast(msg);
+            } catch (e) {}
+        }
+
+        window.addEventListener('error', () => {
+            safeShowToast('일시적인 오류가 발생했지만 화면을 복구했습니다.');
+        });
+
+        window.addEventListener('unhandledrejection', () => {
+            safeShowToast('비동기 작업 중 오류가 발생했습니다.');
+        });
+
+        /* ===== 2. 150종 고유 편의몬 데이터 & 고품질 벡터 아바타 ===== */
+        const MONSTER_ARCHETYPES = [
+            {
+                type: 'onigiri',
+                names: [
+                    '참치마요몽', '전주비빔냥', '불고기삼각이', '스팸마요삐약', '명란마요토끼',
+                    '치즈닭갈비곰', '김치볶음알', '제육볶음콩', '새우튀김별', '참치김치퐁',
+                    '간장계란밥이', '소불고기둥이', '매콤달콤삼각', '고추참치불꽃', '베이컨마요구름',
+                    '크래미마요눈꽃', '돈까스삼각왕', '갈비만두삼각', '훈제오리삼각', '낙지젓갈삼각',
+                    '땡초멸치삼각', '불닭마요삼각', '치킨데리야끼밥', '버터장조림밥이', '트리플치즈삼각'
+                ],
+                render: (color, aura) => `
+                    <circle cx="50" cy="52" r="42" fill="${aura}" opacity="0.35"/>
+                    <path d="M50 14 C57 14, 86 68, 86 78 C86 85, 79 88, 50 88 C21 88, 14 85, 14 78 C14 68, 43 14, 50 14 Z" fill="#ffffff" stroke="#334155" stroke-width="3" stroke-linejoin="round"/>
+                    <path d="M22 63 H78 L85 77 C86 84, 79 88, 50 88 C21 88, 14 84, 15 77 Z" fill="#1e293b" stroke="#334155" stroke-width="2.5" stroke-linejoin="round"/>
+                    <rect x="37" y="70" width="26" height="11" rx="5.5" fill="${color}"/>
+                    <circle cx="38" cy="34" r="1.5" fill="#94a3b8"/><circle cx="62" cy="36" r="1.5" fill="#94a3b8"/>
+                `,
+                facePos: [50, 47]
+            },
+            {
+                type: 'milk',
+                names: [
+                    '바나나단지냥', '딸기우유토끼', '초코우유곰돌', '흰우유송아지', '커피우유부엉',
+                    '메론우유개굴', '바리스타라떼', '복숭아아이스티', '청포도에이드', '자몽허니블랙',
+                    '요구르트요정', '초코에몽몽', '딸기라떼알파카', '고구마라떼두더지', '흑당버블티곰',
+                    '녹차라떼거북', '망고스무디병아리', '밀크티다람쥐', '헤이즐넛아메', '카라멜마끼아또냥',
+                    '레몬에이드새', '파워에이드돌고래', '비타오백반딧불', '식혜달토끼', '수정과호랑이'
+                ],
+                render: (color, aura) => `
+                    <circle cx="50" cy="52" r="42" fill="${aura}" opacity="0.35"/>
+                    <path d="M62 24 L74 8 L82 11" fill="none" stroke="#f43f5e" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M26 30 L50 16 L74 30 Z" fill="${color}" stroke="#334155" stroke-width="3" stroke-linejoin="round"/>
+                    <rect x="30" y="13" width="40" height="5" rx="2.5" fill="#ffffff" stroke="#334155" stroke-width="2.5"/>
+                    <rect x="26" y="30" width="48" height="58" rx="10" fill="#ffffff" stroke="#334155" stroke-width="3"/>
+                    <path d="M26 52 Q50 46 74 52 L74 78 Q74 88 64 88 L36 88 Q26 88 26 78 Z" fill="${color}" opacity="0.85"/>
+                `,
+                facePos: [50, 56]
+            },
+            {
+                type: 'noodle',
+                names: [
+                    '매콤불닭용', '진라면순한양', '치즈볶이병아리', '짜파게티너굴', '우동한그릇물개',
+                    '마라탕후루판다', '떡볶이불꽃냥', '어묵꼬치수달', '소떡소떡강아지', '매운핫바여우',
+                    '치즈소시지돼지', '왕뚜껑거북이', '사리곰탕백곰', '비빔면여름새', '칼국수구름양',
+                    '육개장호랑이', '김치사발면펭귄', '짜장범벅두더지', '까르보불닭토끼', '신라면매운곰',
+                    '너구리다시마왕', '오징어짬뽕문어', '참깨라면고소한새', '튀김우동새우', '로제떡볶이플라밍고'
+                ],
+                render: (color, aura) => `
+                    <circle cx="50" cy="52" r="42" fill="${aura}" opacity="0.35"/>
+                    <path d="M22 38 Q28 14 37 38 Q46 14 55 38 Q64 14 73 38 Q78 22 80 38 Z" fill="#fde047" stroke="#334155" stroke-width="3" stroke-linejoin="round"/>
+                    <path d="M18 38 H82 L74 86 Q73 90 68 90 H32 Q27 90 26 86 Z" fill="${color}" stroke="#334155" stroke-width="3" stroke-linejoin="round"/>
+                    <rect x="15" y="35" width="70" height="7" rx="3.5" fill="#ffffff" stroke="#334155" stroke-width="2.5"/>
+                    <path d="M23 64 H77" stroke="#ffffff" stroke-width="3" stroke-dasharray="6 4"/>
+                `,
+                facePos: [50, 56]
+            },
+            {
+                type: 'bakery',
+                names: [
+                    '인기가요샌드', '에그마요병아리', '치즈불고기버거', '단팥빵두더지', '슈크림빵강아지',
+                    '소보로빵고슴도치', '초코소라빵소라', '딸기크림크로와상', '치킨마요버거', '연세생크림빵',
+                    '피자호빵불꽃', '야채호빵초록이', '메론빵거북이', '모카번다람쥐', '핫도그닥스훈트',
+                    '와플꿀벌', '마카롱토끼', '카스테라병아리', '도넛달콤고양이', '치즈케이크쥐돌이',
+                    '티라미수부엉이', '에그타르트병아리', '베이글연어수달', '크림치즈프레즐', '초코칩쿠키곰'
+                ],
+                render: (color, aura) => `
+                    <circle cx="50" cy="52" r="42" fill="${aura}" opacity="0.35"/>
+                    <path d="M20 46 C20 20, 80 20, 80 46 Z" fill="#f59e0b" stroke="#334155" stroke-width="3" stroke-linejoin="round"/>
+                    <path d="M16 50 Q25 44 33 50 Q42 56 50 50 Q58 44 67 50 Q75 56 84 50" fill="none" stroke="#22c55e" stroke-width="5" stroke-linecap="round"/>
+                    <rect x="18" y="54" width="64" height="10" rx="5" fill="${color}" stroke="#334155" stroke-width="2.5"/>
+                    <path d="M20 65 H80 V75 C80 83, 72 86, 50 86 C28 86, 20 83, 20 75 Z" fill="#fbbf24" stroke="#334155" stroke-width="3" stroke-linejoin="round"/>
+                `,
+                facePos: [50, 36]
+            },
+            {
+                type: 'snack',
+                names: [
+                    '포카칩감자돌이', '꼬북칩거북왕', '허니버터꿀벌', '새우깡갈매기', '초코송이다람쥐',
+                    '하리보젤리곰', '마이구미포도냥', '메로나초록이', '월드콘사자', '붕어싸만코잉어',
+                    '수박바여름이', '스크류바회오리', '죠스바상어', '비비빅팥돌이', '바밤바밤송이',
+                    '빼빼로기린', '홈런볼야구왕', '칸쵸판다', '프링글스수염아저씨', '오징어땅콩문어',
+                    '맛동산땅콩곰', '바나나킥원숭이', '칙촉초코강아지', '몽쉘크림백조', '초코파이달님'
+                ],
+                render: (color, aura) => `
+                    <circle cx="50" cy="52" r="42" fill="${aura}" opacity="0.35"/>
+                    <path d="M22 18 L30 24 L38 18 L46 24 L54 18 L62 24 L70 18 L78 24 V82 L70 88 L62 82 L54 88 L46 82 L38 88 L30 82 L22 88 Z" fill="${color}" stroke="#334155" stroke-width="3" stroke-linejoin="round"/>
+                    <rect x="28" y="34" width="44" height="38" rx="10" fill="#ffffff" opacity="0.92"/>
+                `,
+                facePos: [50, 53]
+            },
+            {
+                type: 'special',
+                names: [
+                    '바코드스캐너용', '편의점포스기왕', '반값택배부엉이', '원플러스원쌍둥이', '투플러스원삼총사',
+                    '폐기도시락유령', '얼음컵북극곰', '온장고다람쥐', '전자레인지로봇', '편의점알바냥',
+                    '야간점장올빼미', '신상입고요정', '포인트적립별', '영수증유령', '동전수집너구리',
+                    '삼각김밥황제', '편의점수호신', '골드바코드드래곤', '무지개봉투요정', '전설의편의몬',
+                    '만점도장콕콕이', '찍신강림컴싸용', '끈적끈적엿가락용', '포근담요도시락냥', '초시계집중부엉이'
+                ],
+                render: (color, aura) => `
+                    <circle cx="50" cy="52" r="44" fill="${aura}" opacity="0.45"/>
+                    <path d="M34 22 L40 12 L50 20 L60 12 L66 22 Z" fill="#facc15" stroke="#334155" stroke-width="2.5" stroke-linejoin="round"/>
+                    <rect x="20" y="24" width="60" height="60" rx="16" fill="${color}" stroke="#334155" stroke-width="3"/>
+                    <rect x="28" y="34" width="44" height="32" rx="8" fill="#ffffff"/>
+                    <path d="M35 74 H37 M41 74 H45 M49 74 H50 M54 74 H58 M62 74 H65" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+                `,
+                facePos: [50, 50]
+            }
+        ];
+
+        const PALETTE = ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#84cc16'];
+        const MONSTERS = [];
+
+        let monCounter = 0;
+        MONSTER_ARCHETYPES.forEach((arch, aIdx) => {
+            arch.names.forEach((name) => {
+                if (monCounter >= 150) return;
+                const id = `mon_${monCounter + 1}`;
+                const color = PALETTE[(monCounter * 3 + aIdx) % PALETTE.length];
+                const isSuneung = name.includes('만점') || name.includes('찍신') || name.includes('엿가락') || name.includes('담요') || name.includes('초시계');
+                MONSTERS.push({
+                    id,
+                    num: monCounter + 1,
+                    name,
+                    color,
+                    archIdx: aIdx,
+                    desc: isSuneung
+                        ? `[수능 응원] ${name}이(가) 수험생과 편의점 손님들을 응원하러 나타났습니다!`
+                        : `${name}은(는) 편의점 진열대에서 몰래 간식을 노리는 사랑스러운 편의몬입니다.`
+                });
+                monCounter++;
+            });
+        });
+
+        function renderCuteFace(x, y) {
+            return `
+                <g>
+                    <circle cx="${x - 10}" cy="${y}" r="3.8" fill="#1e293b"/>
+                    <circle cx="${x + 10}" cy="${y}" r="3.8" fill="#1e293b"/>
+                    <circle cx="${x - 8.8}" cy="${y - 1.3}" r="1.3" fill="#ffffff"/>
+                    <circle cx="${x + 11.2}" cy="${y - 1.3}" r="1.3" fill="#ffffff"/>
+                    <ellipse cx="${x - 16}" cy="${y + 5}" rx="3.8" ry="2.2" fill="#fb7185" opacity="0.75"/>
+                    <ellipse cx="${x + 16}" cy="${y + 5}" rx="3.8" ry="2.2" fill="#fb7185" opacity="0.75"/>
+                    <path d="M${x - 4} ${y + 4.5} Q${x - 2} ${y + 7.5} ${x} ${y + 4.5} Q${x + 2} ${y + 7.5} ${x + 4} ${y + 4.5}" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round"/>
+                </g>
+            `;
+        }
+
+        function getMonsterSVG(m, customAura = null, customColor = null) {
+            const arch = MONSTER_ARCHETYPES[m.archIdx];
+            const saved = dex[m.id] || {};
+            const finalColor = customColor || saved.color || m.color;
+            const finalAura = customAura || saved.aura || '#e0f2fe';
+            return `
+                <svg viewBox="0 0 100 100" width="1em" height="1em" style="display:inline-block; vertical-align:-0.15em; overflow:visible;">
+                    ${arch.render(finalColor, finalAura)}
+                    ${renderCuteFace(arch.facePos[0], arch.facePos[1])}
+                </svg>
+            `;
+        }
+
+        /* ===== 3. 저장 데이터 로드 및 저장 ===== */
+        function loadGameData() {
+            try {
+                const savedProfile = JSON.parse(localStorage.getItem('pyeoni_profile_v5'));
+                if (savedProfile) {
+                    userProfile = {
+                        ...userProfile,
+                        ...savedProfile,
+                        bags: { ...userProfile.bags, ...(savedProfile.bags || {}) },
+                        items: { ...userProfile.items, ...(savedProfile.items || {}) },
+                        equipped: { ...userProfile.equipped, ...(savedProfile.equipped || {}) }
+                    };
+                    if (typeof savedProfile.hasSetNickname !== 'boolean') {
+                        userProfile.hasSetNickname = Boolean(savedProfile.name && savedProfile.name.trim());
+                    }
+                }
+                const savedDex = JSON.parse(localStorage.getItem('pyeoni_dex_v5'));
+                if (savedDex) dex = savedDex;
+                const savedFriends = JSON.parse(localStorage.getItem('pyeoni_friends_v5'));
+                if (savedFriends) friendsList = savedFriends;
+                const savedPending = JSON.parse(localStorage.getItem('pyeoni_pending_v5'));
+                if (savedPending) pendingRequests = savedPending;
+            } catch (e) {}
+
+            if (Object.keys(dex).length === 0) {
+                dex['mon_1'] = { count: 1, level: 5, nickname: '', aura: '#fef08a', color: MONSTERS[0].color };
+                saveGameData();
+            }
+            updateTopUI();
+        }
+
+        function saveGameData() {
+            try {
+                localStorage.setItem('pyeoni_profile_v5', JSON.stringify(userProfile));
+                localStorage.setItem('pyeoni_dex_v5', JSON.stringify(dex));
+                localStorage.setItem('pyeoni_friends_v5', JSON.stringify(friendsList));
+                localStorage.setItem('pyeoni_pending_v5', JSON.stringify(pendingRequests));
+            } catch (e) {
+                safeShowToast('저장 공간 제한으로 일부 데이터가 메모리에만 유지됩니다.');
+            }
+            updateTopUI();
+            updateFriendBadge();
+        }
+
+        function updateTopUI() {
+            document.getElementById('userAvatarBtn').textContent = userProfile.emoji;
+            document.getElementById('userNameLabel').textContent = userProfile.hasSetNickname && userProfile.name ? userProfile.name : '닉네임 미설정';
+            document.getElementById('goldPill').textContent = `💰 ${userProfile.gold.toLocaleString()}G`;
+            const totalBags = (userProfile.bags.normal || 0) + (userProfile.bags.eco || 0) + (userProfile.bags.premium || 0);
+            document.getElementById('bagPill').textContent = userProfile.hasTarpaulin ? `🛍️ ${totalBags}개 + 🧳∞` : `🛍️ ${totalBags}개`;
+            document.getElementById('dexBadge').textContent = Object.keys(dex).length;
+
+            const timeInfo = getCurrentTimeInfo();
+            const sunMoonEl = document.getElementById('clockSunMoonIcon');
+            const clockTimeEl = document.getElementById('clockTimeText');
+            const clockBtnEl = document.getElementById('topRightClockBtn');
+            if (sunMoonEl) sunMoonEl.textContent = timeInfo.sunMoon;
+            if (clockTimeEl) clockTimeEl.textContent = timeInfo.clockText;
+            if (clockBtnEl) {
+                clockBtnEl.className = timeInfo.mode === 'day'
+                    ? 'px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-slate-900 border border-amber-200 rounded-xl text-[11px] font-black shadow-xs transition active:scale-95 flex items-center gap-1 shrink-0'
+                    : 'px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-200 border border-slate-700 rounded-xl text-[11px] font-black shadow-xs transition active:scale-95 flex items-center gap-1 shrink-0';
+            }
+
+            const discBadge = document.getElementById('discountHudBadge');
+            if (discBadge) {
+                const remSec = getDiscount30RemainingSec();
+                if (remSec > 0) {
+                    discBadge.textContent = `🏷️ +30% ${formatRemainingSec(remSec)}`;
+                    discBadge.classList.remove('hidden');
+                } else {
+                    discBadge.classList.add('hidden');
+                }
+            }
+            updateFriendBadge();
+        }
+
+        function updateFriendBadge() {
+            const badge = document.getElementById('friendBadge');
+            if (!badge) return;
+            if (pendingRequests.length > 0) {
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        /* ===== 4. 실제 지명/역세권 기반 편의점 데이터 생성 ===== */
+        const REAL_SPOTS = [
+            { region: '충남 천안시', spots: ['천안역', '두정역먹자골목', '불당카페거리', '신부동터미널', '천안시청', '쌍용역', '성정사거리', '청수호수공원', '백석사거리', '아산탕정역'], lat: 36.8151, lng: 127.1139 },
+            { region: '서울 중구', spots: ['서울시청', '명동역', '을지로입구', '광화문', '남대문시장', '충무로역', '서울역광장', '덕수궁돌담길', '회현역', '동대문역사'], lat: 37.5665, lng: 126.9780 },
+            { region: '서울 강남구', spots: ['강남역', '역삼역', '선릉역', '삼성역코엑스', '신논현역', '압구정로데오', '청담사거리', '가로수길', '대치사거리', '양재역'], lat: 37.4979, lng: 127.0276 },
+            { region: '서울 마포구', spots: ['홍대입구역', '연남동숲길', '합정역', '망원시장', '상수역', '신촌역', '공덕역', '여의나루', '상암DMC', '서교사거리'], lat: 37.5575, lng: 126.9245 },
+            { region: '부산 해운대구', spots: ['해운대해변', '서면역', '광안리해변', '부산역광장', '남포동비프', '센텀시티', '경성대부경대', '송정해변', '사상터미널', '동래역'], lat: 35.1587, lng: 129.1604 },
+            { region: '대전 서구', spots: ['대전역', '둔산갤러리아', '유성온천역', '은행동으능정이', '정부청사역', '탄방역', '궁동로데오', '관저마치광장', '월평역', '서대전네거리'], lat: 36.3504, lng: 127.3845 },
+            { region: '대구 중구', spots: ['동성로중앙', '반월당역', '동대구역', '수성못', '김광석거리', '경북대북문', '범어네거리', '두류공원', '앞산카페거리', '칠곡운암역'], lat: 35.8714, lng: 128.6014 },
+            { region: '광주 서구', spots: ['상무지구', '충장로', '광주송정역', '전남대후문', '유스퀘어터미널', '첨단지구', '수완지구', '양림동펭귄마을', '동명동카페거리', '금남로4가'], lat: 35.1595, lng: 126.8526 },
+            { region: '제주시', spots: ['제주공항', '제주시청', '애월해안도로', '함덕해수욕장', '서귀포올레시장', '중문관광단지', '성산일출봉', '협재해변', '노형오거리', '연동바오젠'], lat: 33.4996, lng: 126.5312 }
+        ];
+
+        const LOCAL_SUFFIXES = ['역전점', '중앙점', '사거리점', '파크점', '대로점', '광장점', '타운점', '로데오점', '힐스점', '스퀘어점', '본점', '리버점'];
+
+        const EXTRA_HUBS = [
+            { region: '천안 동남구', spots: ['천안역서부', '명동대흥로', '신부문화거리', '원성사거리', '청당행정타운', '봉명역'], lat: 36.8065, lng: 127.1485 },
+            { region: '천안 서북구', spots: ['두정역남부', '성정공원', '백석대학로', '불당신도시', '차암동', '직산역'], lat: 36.8336, lng: 127.1378 },
+            { region: '아산 온양', spots: ['온양온천역', '아산시청', '모종동', '배방역', '탕정삼성로', '신용화동'], lat: 36.7898, lng: 127.0018 },
+            { region: '서울 종로구', spots: ['종각역', '안국역', '인사동길', '혜화대학로', '경복궁역', '동묘앞역'], lat: 37.5735, lng: 126.9788 },
+            { region: '서울 성동구', spots: ['성수카페거리', '뚝섬역', '왕십리역', '금호사거리', '옥수역', '행당역'], lat: 37.5634, lng: 127.0368 },
+            { region: '인천 연수구', spots: ['송도센트럴파크', '연수역', '선학역', '동춘역', '청학사거리', '옥련동'], lat: 37.4101, lng: 126.6783 },
+            { region: '수원 영통구', spots: ['광교중앙역', '아주대삼거리', '망포역', '영통역', '매탄공원', '원천호수'], lat: 37.2596, lng: 127.0465 }
+        ];
+
+        function getClosestRegionInfo(lat, lng) {
+            let best = REAL_SPOTS[0];
+            let minDist = Infinity;
+            const allRegions = [...REAL_SPOTS, ...EXTRA_HUBS];
+            allRegions.forEach(r => {
+                const d = Math.hypot(r.lat - lat, r.lng - lng);
+                if (d < minDist) { minDist = d; best = r; }
+            });
+            if (minDist > 0.18) {
+                return {
+                    region: '내 주변 생활권',
+                    spots: ['역전사거리', '중앙대로', '시청광장', '문화공원', '대학로', '행복마을', '푸른숲길', '행복타운', '평화광장', '새싹거리']
+                };
+            }
+            return best;
+        }
+
+        function getRealisticRoadNetwork(lat, lng) {
+            const reg = getClosestRegionInfo(lat, lng);
+            const primarySpots = reg.spots || ['중앙대로', '역전사거리', '문화공원', '대학로'];
+            const short0 = (primarySpots[0] || '중앙').replace(/(역|사거리|대로|거리|광장|터미널|해변|시장)$/g, '') || '중앙';
+            const short1 = (primarySpots[1] || '역전').replace(/(역|사거리|대로|거리|광장|터미널|해변|시장)$/g, '') || '역전';
+            const short2 = (primarySpots[2] || '문화').replace(/(역|사거리|대로|거리|광장|터미널|해변|시장)$/g, '') || '문화';
+            const short3 = (primarySpots[3] || '대학').replace(/(역|사거리|대로|거리|광장|터미널|해변|시장)$/g, '') || '대학';
+
+            return {
+                region: reg.region,
+                vRoads: [
+                    { name: `${short1}순환로`, major: true, curve: 26 },
+                    { name: `${short3}안길`, major: false, curve: -18 },
+                    { name: `${short2}동로`, major: true, curve: 14 }
+                ],
+                hRoads: [
+                    { name: `${short0}대로`, major: true, curve: -22 },
+                    { name: `${short2}로`, major: false, curve: 19 },
+                    { name: `${short3}길`, major: false, curve: -12 }
+                ],
+                diagRoadName: `${short0}생태길`,
+                landmarks: [
+                    { kind: 'school', icon: '🏫', label: `${short3}고등학교`, dx: -0.55, dy: 0.62, tint: '#dbeafe', fg: '#1d4ed8' },
+                    { kind: 'school', icon: '📘', label: `${short2}중학교`, dx: 0.58, dy: -0.58, tint: '#dbeafe', fg: '#1d4ed8' },
+                    { kind: 'bank', icon: '₩', label: `${short1}상호금고`, dx: -0.62, dy: -0.45, tint: '#e0f2fe', fg: '#0284c7' },
+                    { kind: 'apt', icon: '🏢', label: `${short0}힐스단지`, dx: 0.48, dy: 0.48, tint: '#f1f5f9', fg: '#475569' },
+                    { kind: 'apt', icon: '🏘️', label: `${short1}더포레스트`, dx: -1.45, dy: 0.35, tint: '#f1f5f9', fg: '#475569' },
+                    { kind: 'civic', icon: '🏛️', label: `${short2}행정센터`, dx: 1.38, dy: -0.35, tint: '#f1f5f9', fg: '#475569' }
+                ]
+            };
+        }
+
+        function generateRealisticStores(baseLat, baseLng) {
+            const safeLat = Number.isFinite(baseLat) ? baseLat : 36.8151;
+            const safeLng = Number.isFinite(baseLng) ? baseLng : 127.1139;
+            const brands = ['CU', 'GS25', '7-ELEVEN', 'EMART24'];
+            const regionInfo = getClosestRegionInfo(safeLat, safeLng);
+            const list = [];
+            let id = 1;
+
+            [...REAL_SPOTS, ...EXTRA_HUBS].forEach((reg, rIdx) => {
+                reg.spots.forEach((spotName, sIdx) => {
+                    const b = brands[(rIdx * 3 + sIdx) % brands.length];
+                    const angle = (sIdx / Math.max(1, reg.spots.length)) * Math.PI * 2;
+                    const radiusDeg = 0.0009 + (sIdx % 3) * 0.0008;
+                    const offsetLat = Math.sin(angle) * radiusDeg;
+                    const offsetLng = Math.cos(angle) * radiusDeg * 1.15;
+                    list.push({
+                        id: id++,
+                        brand: b,
+                        name: `${b} ${spotName}점`,
+                        address: `${reg.region} ${spotName} 중심가 ${(sIdx + 1) * 12}길`,
+                        lat: reg.lat + offsetLat,
+                        lng: reg.lng + offsetLng
+                    });
+                });
+            });
+
+            for (let gx = -5; gx <= 5; gx++) {
+                for (let gy = -5; gy <= 5; gy++) {
+                    const seed = Math.abs(gx * 17 + gy * 31 + Math.round((safeLat + safeLng) * 1000));
+                    const jitterLat = ((seed % 7) - 3) * 0.00022;
+                    const jitterLng = (((seed * 3) % 7) - 3) * 0.00022;
+
+                    const lat = safeLat + (gy * 0.0016) + jitterLat;
+                    const lng = safeLng + (gx * 0.0019) + jitterLng;
+                    const brand = brands[seed % brands.length];
+                    const spot = regionInfo.spots[seed % regionInfo.spots.length];
+                    const suffix = LOCAL_SUFFIXES[(Math.abs(gx) + Math.abs(gy) + seed) % LOCAL_SUFFIXES.length];
+
+                    list.push({
+                        id: id++,
+                        brand,
+                        name: `${brand} ${spot} ${suffix}`,
+                        address: `${regionInfo.region} ${spot}로 ${(Math.abs(gx) + 1) * 10 + Math.abs(gy) * 3}`,
+                        lat,
+                        lng
+                    });
+                }
+            }
+            STORES_DATA = list;
+        }
+
+        function getStoreMonster(storeId) {
+            const timeInfo = getCurrentTimeInfo();
+            const spawnBucket = `${timeInfo.mode}_${timeInfo.hourlyIndex}_${Math.floor(Date.now() / 60000)}`;
+            if (!spawns[storeId] || spawns[storeId].bucket !== spawnBucket) {
+                let candidatePool = MONSTERS.filter(m => {
+                    if (timeInfo.mode === 'day') return !NIGHT_ONLY_MON_IDS.includes(m.id);
+                    return !DAY_ONLY_MON_IDS.includes(m.id);
+                });
+                if (candidatePool.length === 0) candidatePool = MONSTERS;
+
+                if (storeId % 3 === 0) {
+                    spawns[storeId] = { bucket: spawnBucket, monId: timeInfo.hourlyMon.id };
+                } else {
+                    const idx = (storeId * 11 + timeInfo.hourlyIndex * 7 + Math.floor(Date.now() / 60000)) % candidatePool.length;
+                    spawns[storeId] = { bucket: spawnBucket, monId: candidatePool[idx].id };
+                }
+            }
+            return MONSTERS.find(m => m.id === spawns[storeId].monId) || MONSTERS[0];
+        }
+
+        /* ===== 5. 실제 지명 검색 기능 ===== */
+        function handleSearchInput() {
+            renderStoreList();
+            redrawMap();
+        }
+
+        function searchNewLocation() {
+            const input = document.getElementById('searchInput');
+            const q = input ? input.value.trim() : '';
+            if (!q) {
+                showToast('검색할 동네, 역 이름 또는 편의점명을 입력하세요.');
+                return;
+            }
+
+            if (q === '쿠폰코드0011' || q === '3000원') {
+                renderStoreList();
+                redrawMap();
+                return;
+            }
+
+            const matchedRegion = REAL_SPOTS.find(r =>
+                r.region.includes(q) || q.includes(r.region.split(' ')[1]?.replace('시','').replace('구','') || '___') ||
+                r.spots.some(s => s.includes(q) || q.includes(s))
+            );
+
+            if (matchedRegion) {
+                stopMapInertia();
+                const matchedSpot = matchedRegion.spots.find(s => s.includes(q) || q.includes(s));
+                const targetLat = matchedRegion.lat + (matchedSpot ? 0.0012 : 0);
+                const targetLng = matchedRegion.lng + (matchedSpot ? 0.0012 : 0);
+
+                userLocation = { lat: targetLat, lng: targetLng };
+                mapCenter = { lat: targetLat, lng: targetLng };
+                mapZoom = 15;
+                generateRealisticStores(targetLat, targetLng);
+                document.getElementById('currentLocationBadge').textContent = `${matchedRegion.region} ${matchedSpot || ''} 탐색 중`;
+                redrawMap();
+                showToast(`📍 '${matchedSpot || matchedRegion.region}' 주변 편의점으로 이동했습니다!`);
+                return;
+            }
+
+            const stores = getFilteredStores();
+            if (stores.length > 0) {
+                focusStore(stores[0].lat, stores[0].lng, stores[0].name);
+            } else {
+                const brands = ['CU', 'GS25', '7-ELEVEN', 'EMART24'];
+                const b = brands[q.length % brands.length];
+                const newStore = {
+                    id: STORES_DATA.length + 1,
+                    brand: b,
+                    name: `${b} ${q} 본점`,
+                    address: `${q} 중심상가 1층`,
+                    lat: userLocation.lat + 0.0002,
+                    lng: userLocation.lng + 0.0002
+                };
+                STORES_DATA.unshift(newStore);
+                focusStore(newStore.lat, newStore.lng, newStore.name);
+                showToast(`🔍 '${newStore.name}' 위치를 찾았습니다!`);
+            }
+        }
+
+        /* ===== 6. 시작 흐름 & 부드러운 2D 지도 드래그/관성/핀치 줌 ===== */
+        window.onload = function() {
+            try {
+                loadGameData();
+                generateRealisticStores(userLocation.lat, userLocation.lng);
+                applyDrawerLayout();
+                initMapCanvas();
+                locateUserGPS(true);
+                setInterval(() => {
+                    updateTopUI();
+                    if (currentModalType === 'encounter' && enc) {
+                        const mult = getHotWaterMultiplier(enc.mon);
+                        const discBonus = getDiscount30Bonus();
+                        const remSec = getDiscount30RemainingSec();
+                        const effectiveRate = Math.min(99, Math.round(enc.rate * mult) + discBonus);
+                        const rateEl = document.getElementById('encRateText');
+                        if (rateEl) {
+                            rateEl.textContent = `봉투 포획률 ${effectiveRate}%${discBonus > 0 ? ` (+30% ${formatRemainingSec(remSec)})` : ''}`;
+                        }
+                        const slot3El = document.getElementById('encSlot3Btn');
+                        if (slot3El && userProfile.equipped.slot3 === 'discount30') {
+                            slot3El.textContent = `3번 · 🏷️ 30%할인 (${userProfile.items.discount30 || 0})${remSec > 0 ? ` ${formatRemainingSec(remSec)}` : ''}`;
+                        }
+                    } else if (currentModalType === 'shop' && getDiscount30RemainingSec() > 0) {
+                        openShopModal();
+                    }
+                }, 1000);
+                if (!userProfile.hasSetNickname || !userProfile.name) {
+                    openNicknameStartModal();
+                } else if (!userProfile.hasSeenTutorial) {
+                    openOwnerTutorial(0);
+                }
+            } catch (err) {
+                redrawMap();
+            }
+        };
+
+        function stopMapInertia() {
+            if (inertiaFrameId) {
+                cancelAnimationFrame(inertiaFrameId);
+                inertiaFrameId = null;
+            }
+            mapVelocity = { lat: 0, lng: 0 };
+        }
+
+        function startMapInertia() {
+            stopMapInertia();
+            const friction = 0.91;
+            const step = () => {
+                if (Math.abs(mapVelocity.lat) < 1e-7 && Math.abs(mapVelocity.lng) < 1e-7) {
+                    inertiaFrameId = null;
+                    return;
+                }
+                mapCenter.lat += mapVelocity.lat;
+                mapCenter.lng += mapVelocity.lng;
+                mapVelocity.lat *= friction;
+                mapVelocity.lng *= friction;
+                redrawMap();
+                inertiaFrameId = requestAnimationFrame(step);
+            };
+            inertiaFrameId = requestAnimationFrame(step);
+        }
+
+        function initMapCanvas() {
+            const container = document.getElementById('mapContainer');
+            const canvas = document.getElementById('vectorMapCanvas');
+            if (!container || !canvas) return;
+
+            function resize() {
+                const w = container.clientWidth;
+                const h = container.clientHeight;
+                const dpr = window.devicePixelRatio || 1;
+                canvas.width = Math.max(1, Math.floor(w * dpr));
+                canvas.height = Math.max(1, Math.floor(h * dpr));
+                canvas.style.width = w + 'px';
+                canvas.style.height = h + 'px';
+                const ctx = canvas.getContext('2d');
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                redrawMap();
+            }
+
+            if (typeof ResizeObserver !== 'undefined') {
+                const ro = new ResizeObserver(() => resize());
+                ro.observe(container);
+            }
+
+            container.addEventListener('pointerdown', e => {
+                if (e.target.closest('button') || e.target.closest('.mon-bubble')) return;
+                stopMapInertia();
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+                if (activePointers.size === 1) {
+                    isDragging = true;
+                    dragStart = { x: e.clientX, y: e.clientY };
+                    lastPinchDist = null;
+                    lastMoveTime = performance.now();
+                    try {
+                        container.setPointerCapture(e.pointerId);
+                    } catch (_) {}
+                } else if (activePointers.size === 2) {
+                    isDragging = false;
+                    const pts = Array.from(activePointers.values());
+                    lastPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                }
+            });
+
+            container.addEventListener('pointermove', e => {
+                if (!activePointers.has(e.pointerId)) return;
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+                if (activePointers.size === 2) {
+                    const pts = Array.from(activePointers.values());
+                    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                    if (lastPinchDist && dist > 0) {
+                        const zoomDelta = (dist - lastPinchDist) * 0.014;
+                        mapZoom = Math.min(18, Math.max(12, mapZoom + zoomDelta));
+                        redrawMap();
+                    }
+                    lastPinchDist = dist;
+                    return;
+                }
+
+                if (!isDragging) return;
+                const now = performance.now();
+                const dt = Math.max(8, now - lastMoveTime);
+                lastMoveTime = now;
+
+                const dx = e.clientX - dragStart.x;
+                const dy = e.clientY - dragStart.y;
+                dragStart = { x: e.clientX, y: e.clientY };
+
+                const scale = Math.pow(2, mapZoom) * 256;
+                const degPerPxLng = 360 / scale;
+                const degPerPxLat = (360 / scale) * Math.cos(mapCenter.lat * Math.PI / 180);
+
+                const dLng = -dx * degPerPxLng;
+                const dLat = dy * degPerPxLat;
+
+                mapCenter.lng += dLng;
+                mapCenter.lat += dLat;
+
+                // 프레임 간격 보정된 부드러운 관성 속도
+                const frameFactor = Math.min(1.6, 16 / dt);
+                mapVelocity = {
+                    lat: dLat * 0.78 * frameFactor,
+                    lng: dLng * 0.78 * frameFactor
+                };
+
+                redrawMap();
+            });
+
+            const handlePointerEnd = e => {
+                if (activePointers.has(e.pointerId)) {
+                    activePointers.delete(e.pointerId);
+                    try {
+                        container.releasePointerCapture(e.pointerId);
+                    } catch (_) {}
+                }
+                if (activePointers.size < 2) {
+                    lastPinchDist = null;
+                }
+                if (isDragging && activePointers.size === 0) {
+                    isDragging = false;
+                    startMapInertia();
+                }
+            };
+
+            container.addEventListener('pointerup', handlePointerEnd);
+            container.addEventListener('pointercancel', handlePointerEnd);
+            window.addEventListener('pointerup', handlePointerEnd);
+            window.addEventListener('pointercancel', handlePointerEnd);
+
+            container.addEventListener('wheel', e => {
+                e.preventDefault();
+                stopMapInertia();
+                zoomMap(e.deltaY < 0 ? 0.5 : -0.5);
+            }, { passive: false });
+
+            resize();
+        }
+
+        function openNicknameStartModal() {
+            const icons = ['🧑', '👧', '👦', '🧢', '😎', '🐱', '🐶', '🐰', '🦊', '🐻', '🐼', '🤖'];
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl pop-in text-center">
+                    <div class="text-4xl mb-1">${userProfile.emoji}</div>
+                    <h3 class="text-base font-black text-slate-900 mb-1">시작하기 전 닉네임을 정해 주세요</h3>
+                    <p class="text-[11px] text-slate-500 mb-3">입력한 닉네임과 아이콘이 저장된 후 편의점 사장님 안내가 시작됩니다.</p>
+                    <input type="text" id="startNickInput" value="${userProfile.name || ''}" placeholder="닉네임 (2~10자)" maxlength="10" onkeydown="if(event.key==='Enter') saveStartNickname();" class="w-full bg-slate-100 px-3 py-2.5 rounded-xl text-xs font-bold text-center mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <div class="grid grid-cols-6 gap-1.5 mb-4">
+                        ${icons.map(ic => `<button onclick="userProfile.emoji='${ic}'; saveGameData(); openNicknameStartModal();" class="text-xl p-1.5 rounded-xl border ${userProfile.emoji === ic ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:bg-slate-50'}">${ic}</button>`).join('')}
+                    </div>
+                    <button onclick="saveStartNickname()" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold">저장하고 시작하기</button>
+                </div>
+            `);
+            setTimeout(() => document.getElementById('startNickInput')?.focus(), 50);
+        }
+
+        function saveStartNickname() {
+            const input = document.getElementById('startNickInput');
+            const name = (input ? input.value : '').trim();
+            if (name.length < 2 || name.length > 10) {
+                showToast('닉네임은 2자 이상 10자 이하로 입력해 주세요.');
+                return;
+            }
+            userProfile.name = name;
+            userProfile.hasSetNickname = true;
+            saveGameData();
+            redrawMap();
+            closeModal();
+            showToast(`${name} 님, 닉네임이 저장되었습니다!`);
+            if (!userProfile.hasSeenTutorial) {
+                setTimeout(() => openOwnerTutorial(0), 200);
+            }
+        }
+
+        function openSuneungEventModal() {
+            const suneungMons = MONSTERS.filter(m =>
+                m.name.includes('만점') || m.name.includes('찍신') || m.name.includes('엿가락') || m.name.includes('담요') || m.name.includes('초시계')
+            );
+            const cardsHtml = suneungMons.map(m => {
+                const owned = !!dex[m.id];
+                return `
+                    <div class="p-2.5 rounded-2xl border ${owned ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200 bg-white'} flex items-center gap-2.5">
+                        <span class="text-3xl shrink-0">${getMonsterSVG(m)}</span>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-xs font-black text-slate-900 truncate">${m.name}</div>
+                            <div class="text-[10px] text-slate-500 truncate">${m.desc}</div>
+                        </div>
+                        <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full ${owned ? 'bg-amber-400 text-slate-900' : 'bg-slate-100 text-slate-500'}">${owned ? '보유중' : '출현중'}</span>
+                    </div>
+                `;
+            }).join('');
+
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl pop-in flex flex-col max-h-[82vh]">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="w-8 h-8 rounded-xl bg-amber-300 flex items-center justify-center text-base">🎓</span>
+                            <div>
+                                <h3 class="text-sm font-black text-slate-900">수능 응원 특별 이벤트</h3>
+                                <p class="text-[10px] font-bold text-amber-700">수능 파이팅! 수험생 응원 특별 편의몬</p>
+                            </div>
+                        </div>
+                        <button onclick="closeModal()" class="w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">✕</button>
+                    </div>
+
+                    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-3 text-[11px] font-bold text-slate-800">
+                        수능 보신 분들 수고하셨습니다! 주변 편의점 35m 이내에서 특별 편의몬을 만나고 응원 보상을 받아보세요.
+                    </div>
+
+                    <div class="space-y-2 overflow-y-auto pr-1 mb-3">
+                        ${cardsHtml}
+                    </div>
+
+                    <button onclick="claimSuneungCheerReward()" class="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold transition active:scale-95">
+                        🎁 수능 응원 선물 받기 (+300G &amp; 일반봉투 5개)
+                    </button>
+                </div>
+            `);
+        }
+
+        function claimSuneungCheerReward() {
+            if (userProfile.claimedSuneungCheer) {
+                showToast('이미 수능 응원 선물을 받으셨습니다!');
+                return;
+            }
+            userProfile.claimedSuneungCheer = true;
+            userProfile.gold += 300;
+            userProfile.bags.normal = (userProfile.bags.normal || 0) + 5;
+            saveGameData();
+            openSuneungEventModal();
+            showToast('🎓 수능 응원 선물 완료! +300G & 일반봉투 5개 지급!');
+        }
+
+        const OWNER_STEPS = [
+            { title: '어서 오세요! 편의점 사장님입니다', body: '지도를 자유롭게 드래그하며 동네 편의점을 찾아보세요! 편의점에 35m 이내로 다가가야 포획할 수 있습니다.' },
+            { title: '1번 1+1 · 2번 뜨거운 물 · 3번 30% 할인', body: '상점에서 구매 후 장착하면 포획 화면 슬롯에 나타나요. 1+1은 추가 1마리, 뜨거운 물은 5분 상승 후 5분 하락(10분 복귀), 30% 할인은 2분간 포획 확률을 30% 높여줘요!' },
+            { title: '다회용 타포린백은 시크릿 쿠폰 전용!', body: '다회용 타포린백은 숨겨진 쿠폰 코드로만 얻을 수 있고, 개수가 없는 다회용 가방이라 던져도 소모되지 않아요.' }
+        ];
+
+        function openOwnerTutorial(stepIdx = 0) {
+            const s = OWNER_STEPS[stepIdx] || OWNER_STEPS[0];
+            const isLast = stepIdx >= OWNER_STEPS.length - 1;
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl pop-in">
+                    <div class="flex items-center gap-2.5 mb-3">
+                        <div class="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-2xl">🧑‍💼</div>
+                        <div>
+                            <div class="text-[10px] font-extrabold text-indigo-600">편의점 사장님 NPC (${stepIdx + 1}/${OWNER_STEPS.length})</div>
+                            <div class="text-sm font-black text-slate-900">${s.title}</div>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-2xl border border-slate-100 mb-4">${s.body}</p>
+                    <div class="flex justify-end gap-2">
+                        <button onclick="userProfile.hasSeenTutorial=true; saveGameData(); closeModal();" class="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">닫기</button>
+                        <button onclick="${isLast ? `userProfile.hasSeenTutorial=true; saveGameData(); closeModal();` : `openOwnerTutorial(${stepIdx + 1})`}" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-extrabold">${isLast ? '완료' : '다음'}</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        function openShopModal() {
+            const s1 = userProfile.equipped.slot1 === 'onePlusOne';
+            const s2 = userProfile.equipped.slot2 === 'hotWater';
+            const s3 = userProfile.equipped.slot3 === 'discount30';
+            const remSec = getDiscount30RemainingSec();
+            const remText = remSec > 0 ? ` (활성 중 ${formatRemainingSec(remSec)})` : '';
+
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl pop-in flex flex-col max-h-[82vh]">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-base font-black text-slate-900">🛍️ 상점 &amp; 아이템 장착</h3>
+                        <button onclick="closeModal()" class="w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">✕</button>
+                    </div>
+                    <div class="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-2 rounded-xl mb-3">
+                        보유 골드: 💰 ${userProfile.gold.toLocaleString()}G
+                    </div>
+                    <div class="space-y-2.5 overflow-y-auto pr-1 text-left">
+                        <div class="p-3 rounded-2xl border border-amber-200 bg-amber-50/40">
+                            <div class="flex justify-between text-xs font-extrabold text-slate-900"><span>1번 · 🎁 1+1 상품 (보유 ${userProfile.items.onePlusOne || 0}개)</span><span>250G</span></div>
+                            <p class="text-[10px] text-slate-500 my-1">포획 시 같은 몬스터를 1마리 추가로 줍니다.</p>
+                            <div class="flex gap-1.5">
+                                <button onclick="if(userProfile.gold>=250){userProfile.gold-=250;userProfile.items.onePlusOne=(userProfile.items.onePlusOne||0)+1;saveGameData();openShopModal();showToast('🎁 1+1 상품 구매 완료!');}else showToast('골드가 부족합니다.');" class="px-2.5 py-1 rounded-lg bg-amber-400 text-slate-900 text-[11px] font-extrabold">구매</button>
+                                <button onclick="userProfile.equipped.slot1 = s1 ? null : 'onePlusOne'; saveGameData(); openShopModal();" class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold ${s1 ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-700'}">${s1 ? '장착중' : '장착'}</button>
+                            </div>
+                        </div>
+                        <div class="p-3 rounded-2xl border border-orange-200 bg-orange-50/40">
+                            <div class="flex justify-between text-xs font-extrabold text-slate-900"><span>2번 · ♨️ 뜨거운 물 (보유 ${userProfile.items.hotWater || 0}개)</span><span>180G</span></div>
+                            <p class="text-[10px] text-slate-500 my-1">5분간 라면 계열 상승 후 5분간 하락, 10분 뒤 복귀합니다.</p>
+                            <div class="flex gap-1.5">
+                                <button onclick="if(userProfile.gold>=180){userProfile.gold-=180;userProfile.items.hotWater=(userProfile.items.hotWater||0)+1;saveGameData();openShopModal();showToast('♨️ 뜨거운 물 구매 완료!');}else showToast('골드가 부족합니다.');" class="px-2.5 py-1 rounded-lg bg-orange-500 text-white text-[11px] font-extrabold">구매</button>
+                                <button onclick="userProfile.equipped.slot2 = s2 ? null : 'hotWater'; saveGameData(); openShopModal();" class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold ${s2 ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-700'}">${s2 ? '장착중' : '장착'}</button>
+                            </div>
+                        </div>
+                        <div class="p-3 rounded-2xl border border-violet-200 bg-violet-50/40">
+                            <div class="flex justify-between text-xs font-extrabold text-slate-900"><span>3번 · 🏷️ 30% 할인 아이템 (보유 ${userProfile.items.discount30 || 0}개)</span><span>200G</span></div>
+                            <p class="text-[10px] text-slate-500 my-1">사용 시 2분(120초) 동안 포획 확률을 30% 높여줍니다.${remText}</p>
+                            <div class="flex gap-1.5">
+                                <button onclick="if(userProfile.gold>=200){userProfile.gold-=200;userProfile.items.discount30=(userProfile.items.discount30||0)+1;saveGameData();openShopModal();showToast('🏷️ 30% 할인 아이템 구매 완료!');}else showToast('골드가 부족합니다.');" class="px-2.5 py-1 rounded-lg bg-violet-600 text-white text-[11px] font-extrabold">구매</button>
+                                <button onclick="userProfile.equipped.slot3 = s3 ? null : 'discount30'; saveGameData(); openShopModal();" class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold ${s3 ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-700'}">${s3 ? '장착중' : '장착'}</button>
+                                <button onclick="useDiscount30FromShop()" class="px-2.5 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-extrabold">바로 사용</button>
+                            </div>
+                        </div>
+                        <div class="p-3 rounded-2xl border border-cyan-200 bg-cyan-50/40">
+                            <div class="flex justify-between text-xs font-extrabold text-slate-900"><span>🧳 다회용 타포린백 쿠폰</span><span>${userProfile.hasTarpaulin ? '보유중(∞)' : '미보유'}</span></div>
+                            <p class="text-[10px] text-slate-500 my-1">숨겨진 쿠폰 코드 전용 개수 없는 다회용 가방입니다.</p>
+                            <div class="flex gap-1.5">
+                                <input id="tarpCouponInput" type="text" placeholder="쿠폰 코드 입력" onkeydown="if(event.key==='Enter') redeemTarpaulinCoupon();" class="flex-1 bg-white border border-slate-300 px-2.5 py-1 rounded-lg text-xs font-bold">
+                                <button onclick="redeemTarpaulinCoupon()" class="px-3 py-1 rounded-lg bg-cyan-600 text-white text-[11px] font-extrabold">등록</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `, 'shop');
+        }
+
+        function redeemTarpaulinCoupon() {
+            const input = document.getElementById('tarpCouponInput');
+            const v = (input ? input.value : '').replace(/\s+/g, '').toLowerCase();
+            if (v === atob('MzAwMFrsm50=').toLowerCase()) {
+                userProfile.hasTarpaulin = true;
+                saveGameData();
+                openShopModal();
+                showToast('🧳 다회용 타포린백(개수 무제한) 획득!');
+            } else {
+                showToast('올바른 쿠폰 코드가 아닙니다.');
+            }
+        }
+
+        function activateDiscount30() {
+            if ((userProfile.items.discount30 || 0) <= 0) {
+                showToast('30% 할인 아이템이 없습니다. 상점에서 구매해 주세요.');
+                return false;
+            }
+            userProfile.items.discount30--;
+            const twoMinMs = 2 * 60 * 1000;
+            const baseEnd = Math.max(Date.now(), userProfile.discount30EndsAt || 0);
+            userProfile.discount30EndsAt = baseEnd + twoMinMs;
+            saveGameData();
+            return true;
+        }
+
+        function useDiscount30FromShop() {
+            if (!activateDiscount30()) return;
+            openShopModal();
+            showToast('🏷️ 30% 할인 아이템 사용! 2분 동안 포획 확률이 30% 높아집니다.');
+        }
+
+        function getDiscount30RemainingSec() {
+            if (!userProfile.discount30EndsAt) return 0;
+            const remMs = userProfile.discount30EndsAt - Date.now();
+            if (remMs <= 0) {
+                userProfile.discount30EndsAt = null;
+                return 0;
+            }
+            return Math.ceil(remMs / 1000);
+        }
+
+        function formatRemainingSec(sec) {
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            return `${m}:${String(s).padStart(2, '0')}`;
+        }
+
+        function getDiscount30Bonus() {
+            return getDiscount30RemainingSec() > 0 ? 30 : 0;
+        }
+
+        function getHotWaterMultiplier(mon) {
+            if (!mon || MONSTER_ARCHETYPES[mon.archIdx]?.type !== 'noodle') return 1;
+            if (!userProfile.hotWaterStartedAt) return 1;
+            const elapsedMs = Date.now() - userProfile.hotWaterStartedAt;
+            const fiveMin = 5 * 60 * 1000;
+            const tenMin = 10 * 60 * 1000;
+            if (elapsedMs < 0 || elapsedMs >= tenMin) {
+                userProfile.hotWaterStartedAt = null;
+                return 1;
+            }
+            return elapsedMs < fiveMin ? 1.35 : 0.75;
+        }
+
+        function cycleMapStyleMode() {
+            const modes = ['2d', 'soft', 'night'];
+            const labels = {
+                '2d': '🗺️ 2D지도',
+                'soft': '🌿 파스텔지도',
+                'night': '🌙 야간지도'
+            };
+            const next = modes[(modes.indexOf(mapStyleMode) + 1) % modes.length];
+            mapStyleMode = next;
+            const btn = document.getElementById('btn-mapMode');
+            if (btn) btn.textContent = labels[mapStyleMode];
+            redrawMap();
+            showToast(`지도 스타일이 '${labels[mapStyleMode]}'(으)로 변경되었습니다.`);
+        }
+
+        function latLonToPixel(lat, lon, width, height) {
+            const scale = Math.pow(2, mapZoom) * 256;
+            const cx = (mapCenter.lng + 180) / 360 * scale;
+            const sinC = Math.sin(mapCenter.lat * Math.PI / 180);
+            const cy = (0.5 - Math.log((1 + sinC) / (1 - sinC)) / (4 * Math.PI)) * scale;
+
+            const tx = (lon + 180) / 360 * scale;
+            const sinT = Math.sin(lat * Math.PI / 180);
+            const ty = (0.5 - Math.log((1 + sinT) / (1 - sinT)) / (4 * Math.PI)) * scale;
+
+            return { x: width / 2 + (tx - cx), y: height / 2 + (ty - cy) };
+        }
+
+        function redrawMap() {
+            try {
+                const metersPerPx = 156543.03 * Math.cos(mapCenter.lat * Math.PI / 180) / Math.pow(2, mapZoom);
+                const dist = Math.round((metersPerPx * 45) / 10) * 10 || 50;
+                const scaleEl = document.getElementById('scaleLabel');
+                if (scaleEl) scaleEl.textContent = dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${dist}m`;
+                const container = document.getElementById('mapContainer');
+                const canvas = document.getElementById('vectorMapCanvas');
+                if (!container || !canvas) return;
+
+                const w = container.clientWidth;
+                const h = container.clientHeight;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+
+                const roadNet = getRealisticRoadNetwork(mapCenter.lat, mapCenter.lng);
+                const isNight = mapStyleMode === 'night';
+                const isSoft = mapStyleMode === 'soft';
+
+                const bgGrad = ctx.createLinearGradient(0, 0, w, h);
+                if (isNight) {
+                    bgGrad.addColorStop(0, '#0f172a');
+                    bgGrad.addColorStop(1, '#1e293b');
+                } else if (isSoft) {
+                    bgGrad.addColorStop(0, '#f3f7f2');
+                    bgGrad.addColorStop(1, '#e8f0e8');
+                } else {
+                    bgGrad.addColorStop(0, '#f7f6f2');
+                    bgGrad.addColorStop(1, '#f1efe9');
+                }
+                ctx.fillStyle = bgGrad;
+                ctx.fillRect(0, 0, w, h);
+
+                const gridStepLat = 0.0032;
+                const gridStepLng = 0.0036;
+                const baseLat = Math.floor(mapCenter.lat / gridStepLat) * gridStepLat;
+                const baseLng = Math.floor(mapCenter.lng / gridStepLng) * gridStepLng;
+
+                for (let gx = -4; gx <= 4; gx++) {
+                    for (let gy = -4; gy <= 4; gy++) {
+                        const bLatTop = baseLat + (gy + 1) * gridStepLat;
+                        const bLatBot = baseLat + gy * gridStepLat;
+                        const bLngLeft = baseLng + gx * gridStepLng;
+                        const bLngRight = baseLng + (gx + 1) * gridStepLng;
+
+                        const pTL = latLonToPixel(bLatTop, bLngLeft, w, h);
+                        const pBR = latLonToPixel(bLatBot, bLngRight, w, h);
+                        const bw = pBR.x - pTL.x;
+                        const bh = pBR.y - pTL.y;
+
+                        const blockHash = Math.abs(gx * 37 + gy * 19);
+                        const insetX = 7 + (blockHash % 5);
+                        const insetY = 7 + ((blockHash * 3) % 5);
+
+                        if (blockHash % 7 === 0) {
+                            ctx.fillStyle = isNight ? '#14532d' : '#d7f0d6';
+                            ctx.beginPath();
+                            ctx.moveTo(pTL.x + insetX + 10, pTL.y + insetY);
+                            ctx.quadraticCurveTo(pTL.x + bw * 0.55, pTL.y + insetY - 4, pBR.x - insetX - 6, pTL.y + bh * 0.35);
+                            ctx.quadraticCurveTo(pBR.x - insetX + 4, pBR.y - insetY - 6, pTL.x + bw * 0.35, pBR.y - insetY);
+                            ctx.quadraticCurveTo(pTL.x + insetX - 4, pBR.y - insetY - 10, pTL.x + insetX + 10, pTL.y + insetY);
+                            ctx.fill();
+                        } else if (blockHash % 10 === 0) {
+                            ctx.strokeStyle = isNight ? '#1e3a8a' : '#cde5fa';
+                            ctx.lineWidth = Math.max(12, bw * 0.16);
+                            ctx.lineCap = 'round';
+                            ctx.beginPath();
+                            ctx.moveTo(pTL.x, pTL.y + bh * 0.15);
+                            ctx.bezierCurveTo(pTL.x + bw * 0.35, pTL.y + bh * 0.65, pTL.x + bw * 0.72, pTL.y + bh * 0.25, pBR.x, pBR.y - bh * 0.1);
+                            ctx.stroke();
+                        } else {
+                            ctx.fillStyle = isNight
+                                ? (blockHash % 3 === 0 ? '#1e293b' : '#263349')
+                                : (blockHash % 3 === 0 ? '#eeeae2' : '#ffffff');
+                            ctx.beginPath();
+                            ctx.roundRect(pTL.x + insetX, pTL.y + insetY, Math.max(0, bw - insetX * 2), Math.max(0, bh - insetY * 2), 12);
+                            ctx.fill();
+
+                            ctx.strokeStyle = isNight ? '#334155' : '#e5e7eb';
+                            ctx.lineWidth = 2.2;
+                            ctx.beginPath();
+                            ctx.moveTo(pTL.x + insetX + 8, pTL.y + bh * 0.32);
+                            ctx.bezierCurveTo(pTL.x + bw * 0.35, pTL.y + bh * 0.18, pTL.x + bw * 0.68, pTL.y + bh * 0.82, pBR.x - insetX - 8, pTL.y + bh * 0.62);
+                            ctx.stroke();
+
+                            ctx.fillStyle = isNight ? '#334155' : '#e7e5e4';
+                            const subW = Math.max(11, (bw - insetX * 2) * 0.23);
+                            const subH = Math.max(9, (bh - insetY * 2) * 0.19);
+                            ctx.beginPath();
+                            ctx.roundRect(pTL.x + insetX + 9, pTL.y + insetY + 9, subW, subH, 4);
+                            ctx.roundRect(pBR.x - insetX - subW - 9, pBR.y - insetY - subH - 9, subW, subH, 4);
+                            ctx.fill();
+                        }
+                    }
+                }
+
+                ctx.lineCap = 'round';
+                const roadScale = Math.max(0.75, (mapZoom - 12) * 0.34);
+
+                for (let i = -4; i <= 4; i++) {
+                    const vSpec = roadNet.vRoads[Math.abs(i) % roadNet.vRoads.length];
+                    const isMajorV = i === 0 || (vSpec && vSpec.major && Math.abs(i) % 2 === 0);
+                    const pStartV = latLonToPixel(baseLat - 4.5 * gridStepLat, baseLng + i * gridStepLng, w, h);
+                    const pEndV = latLonToPixel(baseLat + 4.5 * gridStepLat, baseLng + i * gridStepLng, w, h);
+                    const ctrlVX = (pStartV.x + pEndV.x) / 2 + (vSpec ? vSpec.curve : (i % 2 === 0 ? 14 : -14));
+
+                    ctx.strokeStyle = isMajorV ? '#f59e0b' : (isNight ? '#475569' : '#cbd5e1');
+                    ctx.lineWidth = (isMajorV ? 11.5 : 7.5) * roadScale;
+                    ctx.beginPath();
+                    ctx.moveTo(pStartV.x, pStartV.y);
+                    ctx.quadraticCurveTo(ctrlVX, (pStartV.y + pEndV.y) / 2, pEndV.x, pEndV.y);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = isMajorV ? (isNight ? '#fef08a' : '#fffbeb') : (isNight ? '#64748b' : '#ffffff');
+                    ctx.lineWidth = (isMajorV ? 7.2 : 4.5) * roadScale;
+                    ctx.beginPath();
+                    ctx.moveTo(pStartV.x, pStartV.y);
+                    ctx.quadraticCurveTo(ctrlVX, (pStartV.y + pEndV.y) / 2, pEndV.x, pEndV.y);
+                    ctx.stroke();
+
+                    if (vSpec && Math.abs(i) <= 2) {
+                        ctx.save();
+                        ctx.font = 'bold 10px "Noto Sans KR", sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.lineWidth = 3;
+                        ctx.strokeStyle = isNight ? 'rgba(15,23,42,0.9)' : 'rgba(255,255,255,0.92)';
+                        const labelY = Math.max(92, Math.min(h - 42, h * 0.22));
+                        ctx.strokeText(vSpec.name, ctrlVX, labelY);
+                        ctx.fillStyle = isNight ? '#f8fafc' : '#334155';
+                        ctx.fillText(vSpec.name, ctrlVX, labelY);
+                        ctx.restore();
+                    }
+
+                    const hSpec = roadNet.hRoads[Math.abs(i) % roadNet.hRoads.length];
+                    const isMajorH = i === 0 || (hSpec && hSpec.major && Math.abs(i) % 2 === 0);
+                    const pStartH = latLonToPixel(baseLat + i * gridStepLat, baseLng - 4.5 * gridStepLng, w, h);
+                    const pEndH = latLonToPixel(baseLat + i * gridStepLat, baseLng + 4.5 * gridStepLng, w, h);
+                    const ctrlHY = (pStartH.y + pEndH.y) / 2 + (hSpec ? hSpec.curve : (i % 2 === 0 ? -12 : 12));
+
+                    ctx.strokeStyle = isMajorH ? '#f59e0b' : (isNight ? '#475569' : '#cbd5e1');
+                    ctx.lineWidth = (isMajorH ? 11.5 : 7.5) * roadScale;
+                    ctx.beginPath();
+                    ctx.moveTo(pStartH.x, pStartH.y);
+                    ctx.quadraticCurveTo((pStartH.x + pEndH.x) / 2, ctrlHY, pEndH.x, pEndH.y);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = isMajorH ? (isNight ? '#fef08a' : '#fffbeb') : (isNight ? '#64748b' : '#ffffff');
+                    ctx.lineWidth = (isMajorH ? 7.2 : 4.5) * roadScale;
+                    ctx.beginPath();
+                    ctx.moveTo(pStartH.x, pStartH.y);
+                    ctx.quadraticCurveTo((pStartH.x + pEndH.x) / 2, ctrlHY, pEndH.x, pEndH.y);
+                    ctx.stroke();
+
+                    if (hSpec && Math.abs(i) <= 2) {
+                        ctx.save();
+                        ctx.font = 'bold 10px "Noto Sans KR", sans-serif';
+                        ctx.textAlign = 'left';
+                        ctx.lineWidth = 3;
+                        ctx.strokeStyle = isNight ? 'rgba(15,23,42,0.9)' : 'rgba(255,255,255,0.92)';
+                        ctx.strokeText(hSpec.name, 14, ctrlHY - 6);
+                        ctx.fillStyle = isNight ? '#f8fafc' : '#334155';
+                        ctx.fillText(hSpec.name, 14, ctrlHY - 6);
+                        ctx.restore();
+                    }
+                }
+
+                const hubCenter = latLonToPixel(baseLat, baseLng, w, h);
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(hubCenter.x, hubCenter.y, 13 * roadScale, 0, Math.PI * 2);
+                ctx.fillStyle = isNight ? '#1e293b' : '#ffffff';
+                ctx.fill();
+                ctx.lineWidth = 3 * roadScale;
+                ctx.strokeStyle = '#f59e0b';
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(hubCenter.x, hubCenter.y, 5.5 * roadScale, 0, Math.PI * 2);
+                ctx.fillStyle = '#dcfce7';
+                ctx.fill();
+                ctx.restore();
+
+                const diagA = latLonToPixel(baseLat - 2.5 * gridStepLat, baseLng - 2.5 * gridStepLng, w, h);
+                const diagB = latLonToPixel(baseLat + 2.5 * gridStepLat, baseLng + 2.5 * gridStepLng, w, h);
+                ctx.strokeStyle = isNight ? '#475569' : '#cbd5e1';
+                ctx.lineWidth = 8.5 * roadScale;
+                ctx.beginPath(); ctx.moveTo(diagA.x, diagA.y); ctx.lineTo(diagB.x, diagB.y); ctx.stroke();
+                ctx.strokeStyle = isNight ? '#64748b' : '#ffffff';
+                ctx.lineWidth = 5 * roadScale;
+                ctx.beginPath(); ctx.moveTo(diagA.x, diagA.y); ctx.lineTo(diagB.x, diagB.y); ctx.stroke();
+
+                const diagMid = { x: (diagA.x + diagB.x) / 2, y: (diagA.y + diagB.y) / 2 };
+                const angle = Math.atan2(diagB.y - diagA.y, diagB.x - diagA.x);
+                ctx.save();
+                ctx.translate(diagMid.x, diagMid.y);
+                ctx.rotate(angle);
+                ctx.fillStyle = isNight ? '#e2e8f0' : '#475569';
+                ctx.font = 'bold 10px "Noto Sans KR", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(roadNet.diagRoadName, 0, -6);
+                ctx.restore();
+
+                (roadNet.landmarks || []).forEach(lm => {
+                    const pt = latLonToPixel(baseLat + lm.dy * gridStepLat, baseLng + lm.dx * gridStepLng, w, h);
+                    if (pt.x < -60 || pt.x > w + 60 || pt.y < 70 || pt.y > h - 40) return;
+
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y - 10, 10, 0, Math.PI * 2);
+                    ctx.fillStyle = lm.tint;
+                    ctx.fill();
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.stroke();
+
+                    ctx.font = '11px "Noto Sans KR", sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = lm.fg;
+                    ctx.fillText(lm.icon, pt.x, pt.y - 9.5);
+
+                    ctx.font = 'bold 10px "Noto Sans KR", sans-serif';
+                    ctx.textBaseline = 'top';
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = isNight ? 'rgba(15,23,42,0.9)' : 'rgba(255,255,255,0.9)';
+                    ctx.strokeText(lm.label, pt.x, pt.y + 3);
+                    ctx.fillStyle = isNight ? '#f1f5f9' : '#334155';
+                    ctx.fillText(lm.label, pt.x, pt.y + 3);
+                    ctx.restore();
+                });
+
+                renderOverlays(w, h);
+                renderStoreList();
+            } catch (e) {
+                safeShowToast('지도 렌더링 중 오류가 발생했습니다.');
+            }
+        }
+
+        function renderOverlays(w, h) {
+            const overlay = document.getElementById('mapOverlayLayer');
+            if (!overlay) return;
+            let html = '';
+
+            const uPx = latLonToPixel(userLocation.lat, userLocation.lng, w, h);
+            const edgePx = latLonToPixel(userLocation.lat + (CATCH_RANGE / 111320), userLocation.lng, w, h);
+            const rangeRadius = Math.max(10, Math.abs(edgePx.y - uPx.y));
+            html += `<div style="position:absolute; left:${uPx.x - rangeRadius}px; top:${uPx.y - rangeRadius}px; width:${rangeRadius * 2}px; height:${rangeRadius * 2}px; border:1.5px dashed rgba(37,99,235,0.45); background:rgba(59,130,246,0.06); border-radius:50%; pointer-events:none;"></div>`;
+
+            if (activeDestination) {
+                const dPx = latLonToPixel(activeDestination.lat, activeDestination.lng, w, h);
+                const midPx = { x: dPx.x, y: uPx.y };
+                html += `
+                    <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index:20;">
+                        <polyline points="${uPx.x},${uPx.y} ${midPx.x},${midPx.y} ${dPx.x},${dPx.y}" fill="none" stroke="#2563eb" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="10,8"/>
+                        <circle cx="${dPx.x}" cy="${dPx.y}" r="8" fill="#2563eb" opacity="0.25"/>
+                    </svg>
+                `;
+            }
+
+            const dispUser = userProfile.hasSetNickname && userProfile.name ? userProfile.name : '나';
+            html += `
+                <div style="position:absolute; left:${uPx.x}px; top:${uPx.y}px; transform:translate(-50%,-50%); z-index:60; pointer-events:none;">
+                    <div class="w-10 h-10 bg-white border-2 border-blue-600 rounded-full shadow-lg flex items-center justify-center text-xl">
+                        ${userProfile.emoji}
+                    </div>
+                    <div class="mt-0.5 px-1.5 py-0.2 bg-slate-900 text-white text-[9px] font-bold rounded text-center shadow">${dispUser}</div>
+                </div>
+            `;
+
+            const filtered = getFilteredStores();
+            const countEl = document.getElementById('storeCount');
+            if (countEl) countEl.textContent = filtered.length;
+
+            const placedBoxes = [{ x: uPx.x, y: uPx.y }];
+            const minScreenDist = mapZoom < 13.5 ? 54 : 36;
+
+            filtered.forEach(store => {
+                const px = latLonToPixel(store.lat, store.lng, w, h);
+                if (px.x < -50 || px.x > w + 50 || px.y < -50 || px.y > h + 50) return;
+
+                const isOverlapping = placedBoxes.some(b => Math.hypot(b.x - px.x, b.y - px.y) < minScreenDist);
+                if (isOverlapping && (!activeDestination || activeDestination.name !== store.name)) return;
+                placedBoxes.push({ x: px.x, y: px.y });
+
+                const cfg = BRAND_CONFIG[store.brand] || BRAND_CONFIG.CU;
+                const mon = getStoreMonster(store.id);
+                const savedMon = dex[mon.id];
+                const displayName = (savedMon && savedMon.nickname) ? savedMon.nickname : mon.name;
+                const safeStoreName = String(store.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+                html += `
+                    <div onclick="focusStore(${store.lat}, ${store.lng}, '${safeStoreName}')" style="position:absolute; left:${px.x}px; top:${px.y}px; transform:translate(-50%, -100%); z-index:45; cursor:pointer; pointer-events:auto;" class="group">
+                        <div class="mon-bubble" onclick="event.stopPropagation(); openEncounter(${store.id})">
+                            <div class="bg-white/95 backdrop-blur px-2 py-1 rounded-2xl shadow-md border border-slate-200 flex items-center gap-1.5 hover:scale-105 transition">
+                                <span class="text-2xl leading-none">${getMonsterSVG(mon)}</span>
+                                <span class="text-[10px] font-extrabold text-slate-800 whitespace-nowrap">${displayName}</span>
+                            </div>
+                        </div>
+                        <div style="background-color:${cfg.color};" class="w-7 h-7 rounded-full rounded-br-none -rotate-45 shadow-md border-2 border-white flex items-center justify-center mx-auto">
+                            <span class="rotate-45 text-[9px] font-black text-white">${cfg.short}</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            overlay.innerHTML = html;
+        }
+
+        function zoomMap(delta) {
+            stopMapInertia();
+            mapZoom = Math.min(18, Math.max(12, mapZoom + delta));
+            redrawMap();
+        }
+
+        function centerOnUser() {
+            stopMapInertia();
+            mapCenter = { ...userLocation };
+            mapZoom = 15;
+            redrawMap();
+            showToast('내 위치로 이동했습니다.');
+        }
+
+        function locateUserGPS(isInitial = false) {
+            if (!navigator.geolocation) {
+                if (!isInitial) showToast('이 브라우저에서는 GPS를 지원하지 않습니다.');
+                redrawMap();
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    stopMapInertia();
+                    userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    mapCenter = { ...userLocation };
+                    generateRealisticStores(userLocation.lat, userLocation.lng);
+                    const reg = getClosestRegionInfo(userLocation.lat, userLocation.lng);
+                    const badge = document.getElementById('coordBadge');
+                    const locBadge = document.getElementById('currentLocationBadge');
+                    if (badge) badge.textContent = '실시간 GPS';
+                    if (locBadge) locBadge.textContent = `${reg.region} 주변 편의점 탐색 완료`;
+                    redrawMap();
+                    if (!isInitial) showToast('현재 위치를 업데이트했습니다!');
+                },
+                () => {
+                    const badge = document.getElementById('coordBadge');
+                    const locBadge = document.getElementById('currentLocationBadge');
+                    if (badge) badge.textContent = '기본 위치';
+                    if (locBadge) locBadge.textContent = '충남 천안시 · 주변 편의점 탐색 중';
+                    redrawMap();
+                },
+                { timeout: 8000, enableHighAccuracy: true }
+            );
+        }
+
+        /* ===== 7. 편의점 리스트 및 쿠폰 시스템 ===== */
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function getFilteredStores() {
+            const input = document.getElementById('searchInput');
+            const q = input ? input.value.trim().toLowerCase() : '';
+            const secretCode = atob('MzAwMFrsm50=').toLowerCase();
+
+            if (q === '쿠폰코드0011' && !cheatModeActive) {
+                cheatModeActive = true;
+                userProfile.gold += 3000;
+                userProfile.bags.normal += 20;
+                userProfile.bags.premium += 5;
+                saveGameData();
+                showToast('🎁 쿠폰코드 적용! 3,000G + 고급 봉투 & 거리제한 해제!');
+            }
+
+            return STORES_DATA.map(s => ({
+                ...s,
+                distance: calculateDistance(userLocation.lat, userLocation.lng, s.lat, s.lng)
+            })).filter(s => {
+                if (selectedBrand !== 'ALL' && s.brand !== selectedBrand) return false;
+                const hasSearchQuery = Boolean(q && q !== '쿠폰코드0011' && q !== secretCode);
+                if (!cheatModeActive && !hasSearchQuery && s.distance > currentRadius) return false;
+                if (hasSearchQuery) {
+                    const matchStore = s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q);
+                    const mon = getStoreMonster(s.id);
+                    const matchMon = mon.name.toLowerCase().includes(q);
+                    if (!matchStore && !matchMon) return false;
+                }
+                return true;
+            }).sort((a, b) => a.distance - b.distance);
+        }
+
+        function renderStoreList() {
+            const listEl = document.getElementById('storeList');
+            if (!listEl) return;
+            const stores = getFilteredStores();
+
+            if (stores.length === 0) {
+                listEl.innerHTML = `<div class="text-center py-8 text-xs font-bold text-slate-400">일치하는 편의점이 없습니다. 상단 [이동] 버튼을 눌러 해당 지역으로 이동해 보세요!</div>`;
+                return;
+            }
+
+            listEl.innerHTML = stores.map(store => {
+                const cfg = BRAND_CONFIG[store.brand] || BRAND_CONFIG.CU;
+                const mon = getStoreMonster(store.id);
+                const distText = store.distance >= 1000 ? `${(store.distance / 1000).toFixed(1)}km` : `${Math.round(store.distance)}m`;
+                const walkMin = Math.max(1, Math.round(store.distance / 67));
+                const canCatch = cheatModeActive || store.distance <= CATCH_RANGE;
+                const safeStoreName = String(store.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+                return `
+                    <div class="bg-white p-3 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col gap-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="min-w-0 flex-1 cursor-pointer" onclick="focusStore(${store.lat}, ${store.lng}, '${safeStoreName}')">
+                                <div class="flex items-center gap-1.5 mb-0.5">
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold border ${cfg.badge}">${store.brand}</span>
+                                    <span class="text-[11px] font-bold text-slate-400">${distText} · 도보 ${walkMin}분</span>
+                                </div>
+                                <div class="text-xs font-extrabold text-slate-900 truncate">${store.name}</div>
+                                <div class="text-[10px] text-slate-400 truncate">${store.address}</div>
+                            </div>
+                            <button onclick="startRoute(${store.lat}, ${store.lng}, '${safeStoreName}')" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-blue-600 text-[11px] font-extrabold flex items-center gap-1 shrink-0 transition">
+                                <i class="fa-solid fa-diamond-turn-right"></i> 길찾기
+                            </button>
+                        </div>
+
+                        <div class="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl px-2.5 py-1.5">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <span class="text-2xl">${getMonsterSVG(mon)}</span>
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-1 text-[11px] font-extrabold text-slate-800 truncate">
+                                        <span>${mon.name}</span>
+                                        <span class="text-[9px] font-bold text-slate-400">No.${mon.num}</span>
+                                        ${(() => {
+                                            const tag = getMonsterTimeTag(mon.id);
+                                            return tag ? `<span class="px-1.5 py-0.2 rounded border text-[8px] font-extrabold ${tag.cls}">${tag.text}</span>` : '';
+                                        })()}
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 truncate">${mon.desc}</div>
+                                </div>
+                            </div>
+                            <button onclick="openEncounter(${store.id})" class="px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold shrink-0 transition ${canCatch ? 'bg-blue-600 text-white shadow-xs active:scale-95' : 'bg-slate-200 text-slate-500'}">
+                                ${canCatch ? '🛍️ 도착·포획' : `🔒 ${Math.round(store.distance - CATCH_RANGE)}m 접근`}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function filterBrand(brand) {
+            selectedBrand = brand;
+            document.querySelectorAll('.brand-btn').forEach(btn => {
+                btn.className = 'brand-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-slate-700 border border-slate-200 shadow-sm hover:bg-slate-50 shrink-0';
+            });
+            const activeBtn = document.getElementById(`btn-${brand}`);
+            if (activeBtn) {
+                activeBtn.className = 'brand-btn active px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-slate-900 text-white shadow-sm shrink-0';
+            }
+            redrawMap();
+        }
+
+        function updateRadius() {
+            const sel = document.getElementById('radiusSelect');
+            currentRadius = sel ? parseInt(sel.value, 10) : 200;
+            redrawMap();
+        }
+
+        function focusStore(lat, lng, name) {
+            stopMapInertia();
+            mapCenter = { lat, lng };
+            mapZoom = 16.5;
+            redrawMap();
+            showToast(`${name} 위치로 이동`);
+        }
+
+        function startRoute(lat, lng, name) {
+            stopMapInertia();
+            activeDestination = { lat, lng, name };
+            const dist = calculateDistance(userLocation.lat, userLocation.lng, lat, lng);
+            const walkMin = Math.max(1, Math.round(dist / 67));
+            document.getElementById('routeTargetName').textContent = name;
+            document.getElementById('routeTime').textContent = `도보 약 ${walkMin}분`;
+            document.getElementById('routeDistance').textContent = `거리 ${dist >= 1000 ? (dist / 1000).toFixed(1) + 'km' : Math.round(dist) + 'm'}`;
+            document.getElementById('routeSteps').textContent = dist > 500 ? '큰길 직진 후 횡단보도 건너 우회전' : '골목 직진 후 전방 편의점 35m 이내 도착';
+            document.getElementById('routePanel').classList.remove('hidden');
+            mapCenter = { lat: (userLocation.lat + lat) / 2, lng: (userLocation.lng + lng) / 2 };
+            mapZoom = 15;
+            redrawMap();
+        }
+
+        function clearRoute() {
+            activeDestination = null;
+            document.getElementById('routePanel').classList.add('hidden');
+            redrawMap();
+        }
+
+        function applyDrawerLayout() {
+            const sb = document.getElementById('sidebar');
+            const btn = document.getElementById('drawerToggleBtn');
+            const leftCtrl = document.getElementById('leftControls');
+            const rightCtrl = document.getElementById('rightControls');
+            if (!sb || !btn) return;
+
+            if (drawerState === 'minimized') {
+                sb.style.height = '54px';
+                if (leftCtrl) leftCtrl.style.bottom = '72px';
+                if (rightCtrl) rightCtrl.style.bottom = '72px';
+                btn.innerHTML = '<i class="fa-solid fa-chevron-up"></i> 펼치기';
+            } else if (drawerState === 'expanded') {
+                sb.style.height = '82vh';
+                if (leftCtrl) leftCtrl.style.bottom = '84vh';
+                if (rightCtrl) rightCtrl.style.bottom = '84vh';
+                btn.innerHTML = '<i class="fa-solid fa-chevron-down"></i> 접기';
+            } else {
+                sb.style.height = '44vh';
+                if (leftCtrl) leftCtrl.style.bottom = '47vh';
+                if (rightCtrl) rightCtrl.style.bottom = '47vh';
+                btn.innerHTML = '<i class="fa-solid fa-chevron-up"></i> 크게보기';
+            }
+        }
+
+        function minimizeDrawer() {
+            drawerState = drawerState === 'minimized' ? 'normal' : 'minimized';
+            applyDrawerLayout();
+            showToast(drawerState === 'minimized' ? '🗺️ 지도 영역을 넓혔어요! 화면을 자유롭게 드래그해 보세요.' : '목록 창을 기본 크기로 복원했습니다.');
+        }
+
+        function toggleMobileDrawer() {
+            if (drawerState === 'minimized') {
+                drawerState = 'normal';
+            } else if (drawerState === 'normal') {
+                drawerState = 'expanded';
+            } else {
+                drawerState = 'normal';
+            }
+            applyDrawerLayout();
+        }
+
+        /* ===== 8. 편의점 도착(35m) 후 비닐봉투 & 타포린백 포획 시스템 ===== */
+        function openEncounter(storeId) {
+            const store = STORES_DATA.find(s => s.id === storeId);
+            const mon = getStoreMonster(storeId);
+            if (!store || !mon) return;
+
+            const dist = calculateDistance(userLocation.lat, userLocation.lng, store.lat, store.lng);
+            if (!cheatModeActive && dist > CATCH_RANGE) {
+                showToast(`편의점에 아직 도착하지 않았어요! ${Math.round(dist - CATCH_RANGE)}m 더 가까이 이동하세요.`);
+                focusStore(store.lat, store.lng, store.name);
+                return;
+            }
+
+            enc = { store, mon, hp: 100, rate: 55, throwing: false };
+            renderEncounterModal();
+        }
+
+        function renderEncounterModal() {
+            if (!enc) return;
+            const { store, mon, hp, rate } = enc;
+            const b = userProfile.bags;
+            const mult = getHotWaterMultiplier(mon);
+            const discBonus = getDiscount30Bonus();
+            const remSec = getDiscount30RemainingSec();
+            const effectiveRate = Math.min(99, Math.round(rate * mult) + discBonus);
+
+            const slot1Html = userProfile.equipped.slot1 === 'onePlusOne'
+                ? `<button onclick="useEquippedSlot1()" class="w-full py-1.5 px-2 rounded-xl bg-amber-100 hover:bg-amber-200 border border-amber-300 text-[10px] font-extrabold text-amber-900">1번 · 🎁 1+1 (${userProfile.items.onePlusOne || 0})</button>`
+                : `<div class="w-full py-1.5 px-2 rounded-xl bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-400">1번 슬롯 비어있음</div>`;
+
+            const slot2Html = userProfile.equipped.slot2 === 'hotWater'
+                ? `<button onclick="useEquippedSlot2()" class="w-full py-1.5 px-2 rounded-xl bg-orange-100 hover:bg-orange-200 border border-orange-300 text-[10px] font-extrabold text-orange-900">2번 · ♨️ 뜨거운물 (${userProfile.items.hotWater || 0})</button>`
+                : `<div class="w-full py-1.5 px-2 rounded-xl bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-400">2번 슬롯 비어있음</div>`;
+
+            const slot3Html = userProfile.equipped.slot3 === 'discount30'
+                ? `<button id="encSlot3Btn" onclick="useEquippedSlot3()" class="w-full py-1.5 px-2 rounded-xl bg-violet-100 hover:bg-violet-200 border border-violet-300 text-[10px] font-extrabold text-violet-900">3번 · 🏷️ 30%할인 (${userProfile.items.discount30 || 0})${remSec > 0 ? ` ${formatRemainingSec(remSec)}` : ''}</button>`
+                : `<div class="w-full py-1.5 px-2 rounded-xl bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-400">3번 슬롯 비어있음</div>`;
+
+            const tarpBtn = userProfile.hasTarpaulin
+                ? `<button onclick="throwBag('tarpaulin')" class="col-span-3 p-2 rounded-xl border border-cyan-300 bg-cyan-50 hover:bg-cyan-100 flex items-center justify-center gap-2 transition active:scale-95">
+                       <span class="text-lg">🧳</span>
+                       <span class="text-[11px] font-extrabold text-cyan-900">다회용 타포린백 (쿠폰 전용 · 개수 무제한)</span>
+                   </button>`
+                : '';
+
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl border border-slate-100 pop-in text-center">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-[10px] font-extrabold">${store.name} 도착!</span>
+                        <button onclick="closeModal()" class="w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">✕</button>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-1.5 mb-2">
+                        ${slot1Html}
+                        ${slot2Html}
+                        ${slot3Html}
+                    </div>
+
+                    <div id="encSprite" class="text-[105px] my-1.5 leading-none transition-transform">${getMonsterSVG(mon)}</div>
+                    <h3 class="text-lg font-black text-slate-900">${mon.name}</h3>
+                    ${(() => {
+                        const tag = getMonsterTimeTag(mon.id);
+                        return tag ? `<div class="inline-block mt-1 px-2.5 py-0.5 rounded-full border text-[10px] font-extrabold ${tag.cls}">${tag.text} 출현 중</div>` : '';
+                    })()}
+                    <p class="text-xs text-slate-500 mt-1 mb-3">${mon.desc}</p>
+
+                    <div class="bg-slate-50 border border-slate-100 rounded-2xl p-2.5 mb-3">
+                        <div class="flex justify-between text-[11px] font-extrabold mb-1">
+                            <span class="text-slate-600">방심도</span>
+                            <span id="encRateText" class="text-blue-600">봉투 포획률 ${effectiveRate}%${discBonus > 0 ? ` (+30% ${formatRemainingSec(remSec)})` : ''}</span>
+                        </div>
+                        <div class="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div class="h-full bg-emerald-500 transition-all" style="width:${hp}%"></div>
+                        </div>
+                    </div>
+
+                    <button onclick="scanMonster()" class="w-full py-2.5 mb-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold transition active:scale-95">
+                        📱 바코드 스캔으로 방심시키기 (포획률 UP)
+                    </button>
+
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="throwBag('normal')" class="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 flex flex-col items-center gap-0.5 transition active:scale-95">
+                            <span class="text-xl">🛍️</span>
+                            <span class="text-[10px] font-extrabold text-slate-800">일반 봉투</span>
+                            <span class="text-[9px] font-bold text-slate-400">보유 ${b.normal}개</span>
+                        </button>
+                        <button onclick="throwBag('eco')" class="p-2 rounded-xl border border-emerald-200 bg-emerald-50/50 hover:bg-emerald-50 flex flex-col items-center gap-0.5 transition active:scale-95">
+                            <span class="text-xl">♻️</span>
+                            <span class="text-[10px] font-extrabold text-emerald-800">다회용 백</span>
+                            <span class="text-[9px] font-bold text-emerald-600">보유 ${b.eco}개</span>
+                        </button>
+                        <button onclick="throwBag('premium')" class="p-2 rounded-xl border border-amber-200 bg-amber-50/50 hover:bg-amber-50 flex flex-col items-center gap-0.5 transition active:scale-95">
+                            <span class="text-xl">✨</span>
+                            <span class="text-[10px] font-extrabold text-amber-800">보냉 특대백</span>
+                            <span class="text-[9px] font-bold text-amber-600">보유 ${b.premium}개</span>
+                        </button>
+                        ${tarpBtn}
+                    </div>
+                </div>
+            `, 'encounter');
+        }
+
+        function useEquippedSlot1() {
+            if (!enc) return;
+            if ((userProfile.items.onePlusOne || 0) <= 0) {
+                showToast('1번 1+1 상품이 없습니다. 상점에서 구매해 주세요.');
+                return;
+            }
+            userProfile.items.onePlusOne--;
+            enc.bonusExtraMon = (enc.bonusExtraMon || 0) + 1;
+            saveGameData();
+            renderEncounterModal();
+            showToast('🎁 1+1 상품 적용! 이번 포획 성공 시 1마리를 추가로 받습니다.');
+        }
+
+        function useEquippedSlot2() {
+            if (!enc) return;
+            if ((userProfile.items.hotWater || 0) <= 0) {
+                showToast('2번 뜨거운 물이 없습니다. 상점에서 구매해 주세요.');
+                return;
+            }
+            userProfile.items.hotWater--;
+            userProfile.hotWaterStartedAt = Date.now();
+            saveGameData();
+            renderEncounterModal();
+            showToast('♨️ 뜨거운 물 부음! 5분간 라면 계열 상승 후 5분간 하락, 10분 뒤 복귀합니다.');
+        }
+
+        function useEquippedSlot3() {
+            if (!enc) return;
+            if (!activateDiscount30()) return;
+            renderEncounterModal();
+            showToast('🏷️ 30% 할인 아이템 사용! 2분 동안 포획 확률이 30% 높아집니다.');
+        }
+
+        function scanMonster() {
+            if (!enc || enc.throwing) return;
+            if (enc.hp <= 20) {
+                showToast('이미 충분히 방심한 상태입니다! 봉투에 담아보세요.');
+                return;
+            }
+            enc.hp = Math.max(20, enc.hp - 35);
+            enc.rate = Math.min(95, enc.rate + 20);
+            renderEncounterModal();
+            showToast('삐빅! 바코드 스캔 성공! 포획 확률이 크게 올랐습니다.');
+        }
+
+        function throwBag(type) {
+            if (!enc || enc.throwing) return;
+            if (type !== 'tarpaulin') {
+                if ((userProfile.bags[type] || 0) <= 0) {
+                    showToast('해당 비닐봉투가 부족합니다! 우측 상점에서 구매하세요.');
+                    return;
+                }
+                userProfile.bags[type]--;
+            }
+            enc.throwing = true;
+            saveGameData();
+
+            const activeEnc = enc;
+            const mult = getHotWaterMultiplier(activeEnc.mon);
+            const discBonus = getDiscount30Bonus();
+            const bonus = type === 'tarpaulin' ? 40 : (type === 'premium' ? 45 : (type === 'eco' ? 20 : 0));
+            const chance = Math.min(99, Math.round((activeEnc.rate + bonus) * mult) + discBonus);
+            const sprite = document.getElementById('encSprite');
+            if (sprite) {
+                sprite.innerHTML = type === 'tarpaulin' ? '🧳✨' : (type === 'premium' ? '✨🛍️✨' : (type === 'eco' ? '♻️🛍️' : '🛍️'));
+                sprite.classList.add('bag-shake');
+            }
+
+            setTimeout(() => {
+                if (!enc || enc !== activeEnc) return;
+                if (Math.random() * 100 <= chance) {
+                    const m = activeEnc.mon;
+                    const totalCaught = 1 + (activeEnc.bonusExtraMon || 0);
+                    if (!dex[m.id]) {
+                        dex[m.id] = { count: totalCaught, level: 1, nickname: '', aura: '#e0f2fe', color: m.color };
+                    } else {
+                        dex[m.id].count += totalCaught;
+                        dex[m.id].level = Math.min(100, dex[m.id].level + 2 * totalCaught);
+                    }
+                    const rewardGold = 120 * totalCaught;
+                    userProfile.gold += rewardGold;
+                    delete spawns[activeEnc.store.id];
+                    enc = null;
+                    saveGameData();
+                    closeModal();
+                    showToast(totalCaught > 1
+                        ? `🎉 1+1 적용! ${m.name} ${totalCaught}마리 획득! (+${rewardGold}G)`
+                        : `🎉 ${m.name}을(를) 편의점 봉투에 안전하게 담았습니다! (+${rewardGold}G)`);
+                    redrawMap();
+                } else {
+                    activeEnc.throwing = false;
+                    activeEnc.rate = Math.min(99, activeEnc.rate + 8);
+                    renderEncounterModal();
+                    showToast('앗! 편의몬이 가방을 뚫고 튀어나왔습니다! (포획률 +8%)');
+                }
+            }, 300);
+        }
+
+        /* ===== 9. 비닐봉투 상점 ===== */
+        function openBagShop() {
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl pop-in">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-base font-black text-slate-900">🛍️ 편의점 비닐봉투 상점</h3>
+                        <button onclick="closeModal()" class="w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">✕</button>
+                    </div>
+                    <div class="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-2 rounded-xl mb-3">
+                        보유 골드: 💰 ${userProfile.gold.toLocaleString()}G
+                    </div>
+                    <div class="space-y-2.5">
+                        <div class="flex items-center justify-between p-3 rounded-2xl border border-slate-200">
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-2xl">🛍️</span>
+                                <div>
+                                    <div class="text-xs font-extrabold text-slate-900">일반 편의점 봉투 (5개)</div>
+                                    <div class="text-[10px] text-slate-500">기본 포획용 비닐봉투</div>
+                                </div>
+                            </div>
+                            <button onclick="buyBag('normal', 5, 100)" class="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold active:scale-95">100G</button>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-2xl border border-emerald-200 bg-emerald-50/30">
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-2xl">♻️</span>
+                                <div>
+                                    <div class="text-xs font-extrabold text-slate-900">튼튼 다회용 백 (3개)</div>
+                                    <div class="text-[10px] text-emerald-700">포획 확률 +20% 보너스</div>
+                                </div>
+                            </div>
+                            <button onclick="buyBag('eco', 3, 250)" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold active:scale-95">250G</button>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-2xl border border-amber-200 bg-amber-50/30">
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-2xl">✨</span>
+                                <div>
+                                    <div class="text-xs font-extrabold text-slate-900">프리미엄 보냉백 (2개)</div>
+                                    <div class="text-[10px] text-amber-700">포획 확률 +45% 초강력 봉투</div>
+                                </div>
+                            </div>
+                            <button onclick="buyBag('premium', 2, 400)" class="px-3 py-1.5 rounded-xl bg-amber-500 text-white text-xs font-bold active:scale-95">400G</button>
+                        </div>
+                    </div>
+                </div>
+            `);
+        }
+
+        function buyBag(type, qty, cost) {
+            if (userProfile.gold < cost) {
+                showToast('골드가 부족합니다! 편의몬을 포획해 골드를 모으세요.');
+                return;
+            }
+            userProfile.gold -= cost;
+            userProfile.bags[type] = (userProfile.bags[type] || 0) + qty;
+            saveGameData();
+            openBagShop();
+            showToast(`🛍️ 봉투 ${qty}개를 구매했습니다!`);
+        }
+
+        /* ===== 10. 150종 편의몬 도감 & 꾸미기 스튜디오 ===== */
+        function openDex() {
+            const caughtIds = Object.keys(dex);
+            const listHtml = MONSTERS.map(m => {
+                const owned = dex[m.id];
+                const dispName = owned && owned.nickname ? owned.nickname : m.name;
+                const tag = getMonsterTimeTag(m.id);
+                return `
+                    <div onclick="${owned ? `openCustomizeMon('${m.id}')` : `showToast('아직 포획하지 못한 편의몬입니다!')`}"
+                         class="p-2.5 rounded-2xl border text-center cursor-pointer transition ${owned ? 'bg-white border-slate-200 hover:border-blue-400 shadow-xs' : 'bg-slate-100/70 border-slate-100 opacity-50'}">
+                        <div class="flex items-center justify-between text-[9px] font-bold text-slate-400">
+                            <span>No.${m.num}</span>
+                            ${tag ? `<span class="px-1 rounded border text-[8px] ${tag.cls}">${tag.text}</span>` : ''}
+                        </div>
+                        <div class="text-4xl my-1 ${owned ? '' : 'grayscale'}">${getMonsterSVG(m)}</div>
+                        <div class="text-[11px] font-extrabold text-slate-800 truncate">${owned ? dispName : '???'}</div>
+                        ${owned ? `<div class="text-[9px] font-bold text-blue-600 mt-0.5">Lv.${owned.level} · 꾸미기</div>` : `<div class="text-[9px] text-slate-400 mt-0.5">미포획</div>`}
+                    </div>
+                `;
+            }).join('');
+
+            showModal(`
+                <div class="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl pop-in flex flex-col max-h-[82vh]">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <h3 class="text-base font-black text-slate-900">📖 편의몬 도감 &amp; 꾸미기 (총 150종)</h3>
+                            <p class="text-[11px] text-slate-500">수집 현황: ${caughtIds.length} / 150종 (포획한 몬스터 터치 시 꾸미기)</p>
+                        </div>
+                        <button onclick="closeModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">✕</button>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 overflow-y-auto pr-1 mt-2">
+                        ${listHtml}
+                    </div>
+                </div>
+            `);
+        }
+
+        function openCustomizeMon(monId) {
+            const m = MONSTERS.find(x => x.id === monId);
+            const saved = dex[monId];
+            if (!m || !saved) return;
+
+            const colors = ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#1e293b'];
+            const auras = ['#e0f2fe', '#fef08a', '#fce7f3', '#dcfce7', '#f3e8ff', '#ffedd5'];
+
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl pop-in text-center">
+                    <div class="flex items-center justify-between mb-2">
+                        <button onclick="openDex()" class="text-xs font-bold text-slate-500">← 도감으로</button>
+                        <span class="text-xs font-extrabold text-blue-600">Lv.${saved.level} / 100</span>
+                    </div>
+
+                    <div id="previewMonSvg" class="text-[105px] my-2">${getMonsterSVG(m)}</div>
+                    <div class="text-xs font-bold text-slate-400 mb-3">원본: ${m.name}</div>
+
+                    <div class="text-left mb-3">
+                        <label class="text-[11px] font-extrabold text-slate-700 block mb-1">편의몬 애칭 지어주기</label>
+                        <input type="text" id="monNickInput" value="${saved.nickname || ''}" placeholder="${m.name}" maxlength="10" class="w-full bg-slate-100 px-3 py-2 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div class="text-left mb-3">
+                        <label class="text-[11px] font-extrabold text-slate-700 block mb-1.5">메인 컬러 커스텀</label>
+                        <div class="flex gap-2 justify-center">
+                            ${colors.map(c => `<button onclick="setMonStyle('${monId}', 'color', '${c}')" style="background:${c}" class="w-7 h-7 rounded-full border-2 ${saved.color === c ? 'border-slate-900 scale-110' : 'border-white shadow'}"></button>`).join('')}
+                        </div>
+                    </div>
+
+                    <div class="text-left mb-4">
+                        <label class="text-[11px] font-extrabold text-slate-700 block mb-1.5">오라 배경 빛깔</label>
+                        <div class="flex gap-2 justify-center">
+                            ${auras.map(a => `<button onclick="setMonStyle('${monId}', 'aura', '${a}')" style="background:${a}" class="w-7 h-7 rounded-full border-2 ${saved.aura === a ? 'border-slate-900 scale-110' : 'border-slate-200'}"></button>`).join('')}
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="levelUpMon('${monId}')" class="py-2.5 rounded-xl bg-amber-400 text-slate-900 text-xs font-extrabold active:scale-95">⬆️ 레벨업 (100G)</button>
+                        <button onclick="saveMonCustom('${monId}')" class="py-2.5 rounded-xl bg-slate-900 text-white text-xs font-extrabold active:scale-95">💾 꾸미기 저장</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        function setMonStyle(monId, key, val) {
+            dex[monId][key] = val;
+            saveGameData();
+            openCustomizeMon(monId);
+        }
+
+        function levelUpMon(monId) {
+            if (userProfile.gold < 100) {
+                showToast('골드가 부족합니다! (100G 필요)');
+                return;
+            }
+            if (dex[monId].level >= 100) {
+                showToast('이미 최고 레벨(Lv.100)입니다!');
+                return;
+            }
+            userProfile.gold -= 100;
+            dex[monId].level = Math.min(100, dex[monId].level + 5);
+            saveGameData();
+            openCustomizeMon(monId);
+            showToast(`✨ 레벨업 성공! 현재 Lv.${dex[monId].level}`);
+        }
+
+        function saveMonCustom(monId) {
+            const nick = document.getElementById('monNickInput').value.trim();
+            dex[monId].nickname = nick;
+            saveGameData();
+            redrawMap();
+            openDex();
+            showToast('편의몬 꾸미기가 저장되었습니다!');
+        }
+
+        /* ===== 11. 친구 추가 & 친구 관리 시스템 ===== */
+        function openProfileModal() {
+            const icons = ['🧑', '👧', '👦', '🧢', '😎', '🐱', '🐶', '🐰', '🦊', '🐻', '🐼', '🤖'];
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl pop-in text-center">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-base font-black text-slate-900">내 트레이너 아이콘 설정</h3>
+                        <button onclick="closeModal()" class="w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">✕</button>
+                    </div>
+                    <div class="text-5xl my-2">${userProfile.emoji}</div>
+                    <input type="text" id="trainerNameInput" value="${userProfile.name}" placeholder="닉네임 (2~10자)" maxlength="10" class="w-full bg-slate-100 px-3 py-2 rounded-xl text-xs font-bold text-center mb-3 focus:outline-none">
+                    <div class="grid grid-cols-6 gap-2 mb-4">
+                        ${icons.map(ic => `<button onclick="userProfile.emoji='${ic}'; saveGameData(); openProfileModal();" class="text-2xl p-2 rounded-xl border ${userProfile.emoji === ic ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:bg-slate-50'}">${ic}</button>`).join('')}
+                    </div>
+                    <button onclick="const n=(document.getElementById('trainerNameInput').value||'').trim(); if(n.length<2){showToast('닉네임은 2자 이상 입력해 주세요.');return;} userProfile.name=n; userProfile.hasSetNickname=true; saveGameData(); redrawMap(); closeModal(); showToast('프로필이 저장되었습니다.');" class="w-full py-2.5 rounded-xl bg-slate-900 text-white text-xs font-extrabold">적용하기</button>
+                </div>
+            `);
+        }
+
+        function openRadar() {
+            const friendsHtml = friendsList.map(f => `
+                <div class="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div class="flex items-center gap-2.5">
+                        <span class="text-2xl">${f.emoji}</span>
+                        <div>
+                            <div class="text-xs font-extrabold text-slate-800">${f.name} <span class="text-[10px] font-bold text-emerald-600">(친구)</span></div>
+                            <div class="text-[10px] text-slate-500">파트너: ${f.mon} · 거리 ${f.dist}</div>
+                        </div>
+                    </div>
+                    <button onclick="sendGiftToFriend('${f.name}')" class="px-2.5 py-1.5 rounded-xl bg-blue-600 text-white text-[10px] font-bold active:scale-95">🎁 선물</button>
+                </div>
+            `).join('');
+
+            const pendingHtml = pendingRequests.map(p => `
+                <div class="flex items-center justify-between p-2.5 rounded-2xl bg-rose-50/50 border border-rose-100">
+                    <div class="flex items-center gap-2.5">
+                        <span class="text-2xl">${p.emoji}</span>
+                        <div>
+                            <div class="text-xs font-extrabold text-slate-800">${p.name} <span class="text-[10px] font-bold text-rose-600">(요청옴)</span></div>
+                            <div class="text-[10px] text-slate-500">파트너: ${p.mon}</div>
+                        </div>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="acceptFriend('${p.id}')" class="px-2 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold">수락</button>
+                        <button onclick="rejectFriend('${p.id}')" class="px-2 py-1.5 rounded-lg bg-slate-200 text-slate-600 text-[10px] font-bold">거절</button>
+                    </div>
+                </div>
+            `).join('');
+
+            showModal(`
+                <div class="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl pop-in flex flex-col max-h-[82vh]">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-base font-black text-slate-900">📡 친구 레이더 &amp; 친구 관리</h3>
+                        <button onclick="closeModal()" class="w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">✕</button>
+                    </div>
+
+                    <div class="flex gap-1.5 mb-3">
+                        <input type="text" id="friendInput" placeholder="추가할 트레이너 닉네임 입력" class="flex-1 bg-slate-100 px-3 py-2 rounded-xl text-xs font-medium focus:outline-none">
+                        <button onclick="sendFriendRequest()" class="px-3 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl active:scale-95">친구신청</button>
+                    </div>
+
+                    <div class="space-y-3 overflow-y-auto pr-1">
+                        ${pendingRequests.length > 0 ? `<div><div class="text-[11px] font-extrabold text-rose-600 mb-1.5">받은 친구 요청 (${pendingRequests.length})</div>${pendingHtml}</div>` : ''}
+                        <div>
+                            <div class="text-[11px] font-extrabold text-slate-700 mb-1.5">내 친구 목록 (${friendsList.length}명)</div>
+                            <div class="space-y-2">
+                                ${friendsList.length > 0 ? friendsHtml : '<div class="text-xs text-slate-400 text-center py-4">등록된 친구가 없습니다. 닉네임으로 추가해보세요!</div>'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+        }
+
+        function sendFriendRequest() {
+            const input = document.getElementById('friendInput');
+            const name = input ? input.value.trim() : '';
+            if (!name) {
+                showToast('추가할 친구의 닉네임을 입력하세요.');
+                return;
+            }
+            if (name === userProfile.name) {
+                showToast('자기 자신은 친구로 추가할 수 없습니다!');
+                return;
+            }
+            if (friendsList.some(f => f.name === name)) {
+                showToast('이미 등록된 친구입니다.');
+                return;
+            }
+
+            const newFriend = {
+                id: 'f_' + Date.now(),
+                name: name,
+                emoji: ['🦊', '🐼', '🦁', '🐯', '🐰'][Math.floor(Math.random() * 5)],
+                dist: Math.floor(Math.random() * 400 + 50) + 'm',
+                mon: '참치마요몽',
+                status: 'friend'
+            };
+            friendsList.push(newFriend);
+            saveGameData();
+            input.value = '';
+            openRadar();
+            showToast(`🎉 '${name}' 님과 친구가 되었습니다!`);
+        }
+
+        function acceptFriend(id) {
+            const idx = pendingRequests.findIndex(p => p.id === id);
+            if (idx !== -1) {
+                const req = pendingRequests.splice(idx, 1)[0];
+                req.status = 'friend';
+                friendsList.push(req);
+                saveGameData();
+                openRadar();
+                showToast(`🤝 '${req.name}' 님의 친구 요청을 수락했습니다!`);
+            }
+        }
+
+        function rejectFriend(id) {
+            const idx = pendingRequests.findIndex(p => p.id === id);
+            if (idx !== -1) {
+                pendingRequests.splice(idx, 1);
+                saveGameData();
+                openRadar();
+                showToast('친구 요청을 거절했습니다.');
+            }
+        }
+
+        function sendGiftToFriend(name) {
+            userProfile.gold += 50;
+            userProfile.bags.normal += 2;
+            saveGameData();
+            showToast(`🎁 '${name}' 님에게 봉투와 선물을 보내 50G & 일반봉투 2개를 획득했습니다!`);
+        }
+
+        /* ===== 12. 유틸리티 모달 & 토스트 ===== */
+        function showModal(html, modalType = null) {
+            currentModalType = modalType;
+            const el = document.getElementById('gameModal');
+            el.innerHTML = html;
+            el.classList.remove('hidden');
+            el.classList.add('flex');
+        }
+
+        function closeModal() {
+            currentModalType = null;
+            const el = document.getElementById('gameModal');
+            el.classList.add('hidden');
+            el.classList.remove('flex');
+        }
+
+        let toastTimer = null;
+        function showToast(msg) {
+            const el = document.getElementById('toast');
+            document.getElementById('toastMsg').textContent = msg;
+            el.style.opacity = '1';
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 2600);
+        }
+    </script>
+</body>
+</html>
